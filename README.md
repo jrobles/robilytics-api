@@ -8,7 +8,7 @@ This app uses the Jira API to obtain statistics on a developer or a set of devel
 * Jira API credentials
 
 ## Usage
-`./nameOfBnaryFile {FIFA_MATCH_ID}`
+`./nameOfBnaryFile
 
 ## TODO
 1. TBD
