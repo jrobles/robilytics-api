@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"github.com/garyburd/redigo/redis"
-	"strconv"
 )
 
 // Struct for the API credentials from the config.json file
@@ -20,6 +19,37 @@ type JSONConfigData struct {
 type jiraResponse struct {
 	Total	int	`json:total`
 	Issues []jiraIssue `json:issues`
+//	Issues struct {
+//		Id string `json:id`
+//		Self string `json:self`
+//		Key string `json:key`
+//		Fields struct {
+//			Summary string `json:summary`
+//			Reporter struct {
+//				Name string `json:name`
+//				DisplayName string `json:displayName`
+//			} `json:reporter`
+//			Status struct {
+//				Name string `json:name`
+//			} `json:status`
+//			Assignee struct {
+//				Name string `json:name`
+//				DisplayName string `json:displayName`
+//			} `json:assignee`
+//		} `json:fields`
+//	} `json:issues`
+}
+
+type jiraDetailResponse struct {
+	Id int `json:id`
+	Key string `json:key`
+	Fields struct {
+		TimeTracking struct {
+			OriginalEstimateSeconds int `json:originalEstimateSeconds`
+			RemainingEstimateSeconds int `json:remainingEstimateSeconds`
+			TimeSpentSeconds int `json:timeSpentSeconds`
+		} `json:timetracking`
+	} `json:fields`
 }
 
 // Another struct for Jira API response
@@ -106,9 +136,6 @@ func getTotalsForDevelopers(redisConn redis.Conn,developers []string) {
 				fmt.Println("-",k,":",devStatus)
 			}
 		}
-
-		// prin the progress bar for the current developer
-		progressBar(devStatuses,devTaskTotal)
 	}
 }
 
@@ -132,6 +159,15 @@ func getDeveloperInfo (config *JSONConfigData,developerUsername string) (string)
 	endpoint := config.Url
 	endpoint += "user?username="
 	endpoint += developerUsername
+	data := cURLEndpoint(config,endpoint)
+	return data
+}
+
+// Function used to get additional information for a specific story
+func getStoryDetails (config *JSONConfigData,storyID string) (string){
+	endpoint := config.Url
+	endpoint += "issue/"
+	endpoint += storyID
 	data := cURLEndpoint(config,endpoint)
 	return data
 }
@@ -169,29 +205,6 @@ func Map(do_result interface{}, err error) (map[string] string, error){
 	return result, nil
 }
 
-// Function used to generate the developer progress bar
-func progressBar (devStatuses map[string]string,devTaskTotal int) {
-	fmt.Println("--------------------------------------------------------------------------------")
-	progressBar := ""
-	oof := 0
-	for k,storyCount := range devStatuses {
-		if (k == "Accepted") {
-			i, err := strconv.Atoi(storyCount)
-			if err != nil {fmt.Println("ERROR: Cannot convert story count to INT")}
-			oof = oof + i
-		}
-	}
-	percentage := oof * 100 / devTaskTotal
-	bars := 80 * percentage / 100
-	for i := 0; i < bars; i++ {
-		progressBar += "\033[01;32m"
-		progressBar += "|"
-		progressBar += "\033[00m"
-	}
-	fmt.Println(progressBar)
-	fmt.Println("--------------------------------------------------------------------------------")
-}
-
 // Function used to store all the applicable user data from the Jira API
 func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfigData) {
 	for _,developer := range developers {
@@ -205,9 +218,6 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 		deleteFromRedis(redisConn,"info:"+developer)
 
 		jiraUserData.save(redisConn)
-
-		// Delete the taskStatuses<developer> HASH
-		deleteFromRedis(redisConn,"taskStatuses:" + developer)
 
 		// Get the stories for the current developer
 		jiraStoryDataResponse := getStoriesForDeveloper(config,developer)
@@ -223,13 +233,18 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 			// Add the developers tasks to the tasks:<developer> SET
 			redis.Strings(redisConn.Do("SADD","tasks:" + issue.Fields.Assignee.Name,issue.Id))
 
+			// Get the story details
+			jiraStoryDetailResponse := getStoryDetails(config,issue.Id)
+			jiraStoryDetail := &jiraDetailResponse{}
+			json.Unmarshal([]byte(jiraStoryDetailResponse),&jiraStoryDetail)
+
 			// Add the task details to the task:<task_id> SET
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id))
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary))
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name))
-
-			// Set the status HASH for each developer
-			redis.Strings(redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1))
+			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
+			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds))
+			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds))
 		}
 	}
 }
