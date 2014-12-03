@@ -62,6 +62,7 @@ type jiraIssue struct {
 	Key string `json:key`
 	Fields struct {
 		Summary string `json:summary`
+		Customfield_10007 []string `json:customfield_10007`
 		IssueType struct {
 			Name string `json:name`
 		} `json:issueType`
@@ -228,6 +229,9 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 
 		jiraUserData.save(redisConn)
 
+		// Delete the taskStatuses<developer> HASH
+		deleteFromRedis(redisConn,"taskStatuses:" + developer)
+
 		// Get the stories for the current developer
 		jiraStoryDataResponse := getStoriesForDeveloper(config,developer)
 		jiraStoryData := &jiraResponse{}
@@ -256,6 +260,8 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds))
 			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds))
+
+fmt.Println(issue.Fields.Customfield_10007)
 
 			// Set the status HASH for each developer
 			redis.Strings(redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1))
