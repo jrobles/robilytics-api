@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"github.com/garyburd/redigo/redis"
 	"strconv"
+	"strings"
 )
 
 // Struct for the API credentials from the config.json file
@@ -111,6 +112,7 @@ func main() {
 
 	updateRedisData(developers,redisConn,config)
 
+
 	// Print totals for each developer
 	getTotalsForDevelopers(redisConn,developers)
 }
@@ -130,7 +132,8 @@ func getTotalsForDevelopers(redisConn redis.Conn,developers []string) {
 		if err != nil {fmt.Println("ERROR: Cannot get DisplayName for:",developer)}
 
 		// Print the table header
-		fmt.Println(devName[0],":",devTaskTotal,"total tasks")
+		fmt.Println(devName[0],":",devTaskTotal,"total tasks,",getDeveloperHours(developer,redisConn),"hours")
+
 		fmt.Println("--------------------------------------------------------------------------------")
 
 		// List of statuses
@@ -154,7 +157,7 @@ func getStoriesForDeveloper(config *JSONConfigData,developerUsername string) (st
 	endpoint := config.Url
 	endpoint += "search?jql=assignee="
 	endpoint += developerUsername
-	endpoint += "&maxResults=20"
+	endpoint += "&maxResults=2000"
 	data :=cURLEndpoint(config,endpoint)
 	return data
 }
@@ -217,6 +220,9 @@ func Map(do_result interface{}, err error) (map[string] string, error){
 
 // Function used to store all the applicable user data from the Jira API
 func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfigData) {
+
+	var hoursWorked int
+
 	for _,developer := range developers {
 
 		// Get developer info from Jira API
@@ -243,31 +249,63 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 		// Iterate through the stories for the current developer
 		for _,issue := range jiraStoryData.Issues {
 
-			// Add the developers tasks to the tasks:<developer> SET
-			redis.Strings(redisConn.Do("SADD","tasks:" + issue.Fields.Assignee.Name,issue.Id))
+			if (getSprintStatus(issue.Fields.Customfield_10007) == "ACTIVE") {
 
-			// Get the story details
-			jiraStoryDetailResponse := getStoryDetails(config,issue.Id)
-			jiraStoryDetail := &jiraDetailResponse{}
-			json.Unmarshal([]byte(jiraStoryDetailResponse),&jiraStoryDetail)
+				// Add the developers tasks to the tasks:<developer> SET
+				redis.Strings(redisConn.Do("SADD","tasks:" + issue.Fields.Assignee.Name,issue.Id))
 
-			// Add the task details to the task:<task_id> SET
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Type",issue.Fields.IssueType.Name))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds))
-			redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds))
+				// Get the story details
+				jiraStoryDetailResponse := getStoryDetails(config,issue.Id)
+				jiraStoryDetail := &jiraDetailResponse{}
+				json.Unmarshal([]byte(jiraStoryDetailResponse),&jiraStoryDetail)
 
-fmt.Println(issue.Fields.Customfield_10007)
+				// Add the task details to the task:<task_id> SET
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Type",issue.Fields.IssueType.Name))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds))
 
-			// Set the status HASH for each developer
-			redis.Strings(redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1))
+				// Set the status HASH for each developer
+				redis.Strings(redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1))
 
+				hoursWorked  = hoursWorked + jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds
+
+			}
 		}
 	}
+}
+
+// Function used to get the total hours worked by a developer
+func getDeveloperHours(developer string,redisConn redis.Conn) int {
+	var hoursWorked int
+//	for _,developer := range developers {
+		stories,_ := redis.Strings(redisConn.Do("SMEMBERS", "tasks:"+developer))
+		for _,story := range stories {
+			storyDetails,_ := Map(redisConn.Do("HGETALL","task:" + story))
+			for k,storyDetail := range storyDetails {
+				if (k == "TimeSpent") {
+					seconds,_ := strconv.Atoi(storyDetail)
+					hoursWorked = hoursWorked + seconds / 60 / 60
+				}
+			}
+		}
+		return hoursWorked
+//	}
+}
+
+// Function used to get the status of a sprint
+func getSprintStatus (jiraString []string) string {
+	var status string
+	for _,v := range jiraString {
+		s := strings.Split(v,",")
+		sprintStatus := strings.Split(s[1],"=")
+		status = sprintStatus[1]
+	}
+		return status
 }
 
 // Function used to generate the developer progress bar
