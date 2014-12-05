@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"github.com/garyburd/redigo/redis"
+	"github.com/tealeg/xlsx"
 	"strconv"
 	"strings"
 )
@@ -21,27 +22,6 @@ type JSONConfigData struct {
 type jiraResponse struct {
 	Total	int	`json:total`
 	Issues []jiraIssue `json:issues`
-/*
-	Issues struct {
-		Id string `json:id`
-		Self string `json:self`
-		Key string `json:key`
-		Fields struct {
-			Summary string `json:summary`
-			Reporter struct {
-				Name string `json:name`
-				DisplayName string `json:displayName`
-			} `json:reporter`
-			Status struct {
-				Name string `json:name`
-			} `json:status`
-			Assignee struct {
-				Name string `json:name`
-				DisplayName string `json:displayName`
-			} `json:assignee`
-		} `json:fields`
-	} `json:issues`
-*/
 }
 
 type jiraDetailResponse struct {
@@ -78,6 +58,7 @@ type jiraIssue struct {
 			Name string `json:name`
 			DisplayName string `json:displayName`
 		} `json:assignee`
+		Updated string `json:updated`
 	} `json:fields`
 }
 
@@ -112,6 +93,7 @@ func main() {
 
 	updateRedisData(developers,redisConn,config)
 
+	writeToXLS(developers,redisConn)
 
 	// Print totals for each developer
 	getTotalsForDevelopers(redisConn,developers)
@@ -261,8 +243,9 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 
 				// Add the task details to the task:<task_id> SET
 				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Project","NULL"))
 				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Type",issue.Fields.IssueType.Name))
+				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key))
 				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary))
 				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name))
 				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
@@ -282,19 +265,17 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 // Function used to get the total hours worked by a developer
 func getDeveloperHours(developer string,redisConn redis.Conn) int {
 	var hoursWorked int
-//	for _,developer := range developers {
-		stories,_ := redis.Strings(redisConn.Do("SMEMBERS", "tasks:"+developer))
-		for _,story := range stories {
-			storyDetails,_ := Map(redisConn.Do("HGETALL","task:" + story))
-			for k,storyDetail := range storyDetails {
-				if (k == "TimeSpent") {
-					seconds,_ := strconv.Atoi(storyDetail)
-					hoursWorked = hoursWorked + seconds / 60 / 60
-				}
+	stories,_ := redis.Strings(redisConn.Do("SMEMBERS", "tasks:"+developer))
+	for _,story := range stories {
+		storyDetails,_ := Map(redisConn.Do("HGETALL","task:" + story))
+		for k,storyDetail := range storyDetails {
+			if (k == "TimeSpent") {
+				seconds,_ := strconv.Atoi(storyDetail)
+				hoursWorked = hoursWorked + seconds / 60 / 60
 			}
 		}
-		return hoursWorked
-//	}
+	}
+	return hoursWorked
 }
 
 // Function used to get the status of a sprint
@@ -329,4 +310,56 @@ func progressBar (devStatuses map[string]string,devTaskTotal int) {
 	}
 	fmt.Println(progressBar)
 	fmt.Println("--------------------------------------------------------------------------------")
+}
+
+func writeToXLS(developers []string,redisConn redis.Conn) {
+
+	var file *xlsx.File
+    var sheet *xlsx.Sheet
+    var row *xlsx.Row
+    var cell *xlsx.Cell
+    var err error
+
+	file = xlsx.NewFile()
+
+	for _,developer := range developers {
+
+		sheet = file.AddSheet(developer)
+
+		// Add header
+		row = sheet.AddRow()
+		cell = row.AddCell()
+		cell.Value = "Title"
+		cell = row.AddCell()
+		cell.Value = "Key"
+		cell = row.AddCell()
+		cell.Value = "Type"
+		cell = row.AddCell()
+		cell.Value = "Time Spent"
+		cell = row.AddCell()
+		cell.Value = "Project"
+		cell = row.AddCell()
+		cell.Value = "Remaining Estimate"
+		cell = row.AddCell()
+		cell.Value = "Original Estimate"
+		cell = row.AddCell()
+		cell.Value = "ID"
+		cell = row.AddCell()
+		cell.Value = "Status"
+
+		stories,_ := redis.Strings(redisConn.Do("SMEMBERS", "tasks:"+developer))
+		for _,story := range stories {
+			row = sheet.AddRow()
+			storyDetails,_ := Map(redisConn.Do("HGETALL","task:" + story))
+			for _,storyDetail := range storyDetails {
+				cell = row.AddCell()
+				cell.Value = storyDetail
+			}
+		}
+	}
+
+    err = file.Save("MyXLSXFile.xlsx")
+    if err != nil {
+        fmt.Printf(err.Error())
+    }
 }
