@@ -9,6 +9,7 @@ import (
 	"github.com/tealeg/xlsx"
 	"strconv"
 	"strings"
+	"sort"
 )
 
 // Struct for the API credentials from the config.json file
@@ -241,19 +242,29 @@ func updateRedisData(developers []string,redisConn redis.Conn,config *JSONConfig
 				jiraStoryDetail := &jiraDetailResponse{}
 				json.Unmarshal([]byte(jiraStoryDetailResponse),&jiraStoryDetail)
 
+
+				redisConn.Do("HSET","task:" + issue.Id,"ID","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"Project","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"Type","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"Key","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"Title","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"Status","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate","NULL")
+				redisConn.Do("HSET","task:" + issue.Id,"TimeSpent","NULL")
+
 				// Add the task details to the task:<task_id> SET
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Project","NULL"))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Type",issue.Fields.IssueType.Name))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds))
-				redis.Strings(redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds))
+				redisConn.Do("HSET","task:" + issue.Id,"ID",issue.Id)
+				redisConn.Do("HSET","task:" + issue.Id,"Type",issue.Fields.IssueType.Name)
+				redisConn.Do("HSET","task:" + issue.Id,"Key",issue.Key)
+				redisConn.Do("HSET","task:" + issue.Id,"Title",issue.Fields.Summary)
+				redisConn.Do("HSET","task:" + issue.Id,"Status",issue.Fields.Status.Name)
+				redisConn.Do("HSET","task:" + issue.Id,"OriginalEstimate",jiraStoryDetail.Fields.TimeTracking.OriginalEstimateSeconds /60/60)
+				redisConn.Do("HSET","task:" + issue.Id,"RemainingEstimate",jiraStoryDetail.Fields.TimeTracking.RemainingEstimateSeconds /60/60)
+				redisConn.Do("HSET","task:" + issue.Id,"TimeSpent",jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds/60/60)
 
 				// Set the status HASH for each developer
-				redis.Strings(redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1))
+				redisConn.Do("HINCRBY","taskStatuses:" + issue.Fields.Assignee.Name,issue.Fields.Status.Name,1)
 
 				hoursWorked  = hoursWorked + jiraStoryDetail.Fields.TimeTracking.TimeSpentSeconds
 
@@ -271,7 +282,8 @@ func getDeveloperHours(developer string,redisConn redis.Conn) int {
 		for k,storyDetail := range storyDetails {
 			if (k == "TimeSpent") {
 				seconds,_ := strconv.Atoi(storyDetail)
-				hoursWorked = hoursWorked + seconds / 60 / 60
+				//hoursWorked = hoursWorked + seconds / 60 / 60
+				hoursWorked = hoursWorked + seconds
 			}
 		}
 	}
@@ -329,31 +341,39 @@ func writeToXLS(developers []string,redisConn redis.Conn) {
 		// Add header
 		row = sheet.AddRow()
 		cell = row.AddCell()
-		cell.Value = "Title"
+		cell.Value = "ID"
 		cell = row.AddCell()
 		cell.Value = "Key"
 		cell = row.AddCell()
-		cell.Value = "Type"
-		cell = row.AddCell()
-		cell.Value = "Time Spent"
+		cell.Value = "Original Estimate"
 		cell = row.AddCell()
 		cell.Value = "Project"
 		cell = row.AddCell()
 		cell.Value = "Remaining Estimate"
 		cell = row.AddCell()
-		cell.Value = "Original Estimate"
-		cell = row.AddCell()
-		cell.Value = "ID"
-		cell = row.AddCell()
 		cell.Value = "Status"
+		cell = row.AddCell()
+		cell.Value = "Time Spent"
+		cell = row.AddCell()
+		cell.Value = "Title"
+		cell = row.AddCell()
+		cell.Value = "Type"
 
 		stories,_ := redis.Strings(redisConn.Do("SMEMBERS", "tasks:"+developer))
+
 		for _,story := range stories {
 			row = sheet.AddRow()
 			storyDetails,_ := Map(redisConn.Do("HGETALL","task:" + story))
-			for _,storyDetail := range storyDetails {
+
+			var keys []string
+			for k := range storyDetails {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+
+			for _, k := range keys {
 				cell = row.AddCell()
-				cell.Value = storyDetail
+				cell.Value = storyDetails[k]
 			}
 		}
 	}
