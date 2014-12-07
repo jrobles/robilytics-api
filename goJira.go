@@ -17,6 +17,11 @@ type JSONConfigData struct {
 	Url string `json:url`
 	Username string `json:username`
 	Password string `json:password`
+	Teams []struct {
+		Name string `json:name`
+		TeamLeader string `json:teamLeader`
+		Developers []string `json:developers`
+	} `json:teams`
 }
 
 // Struct used to store the Jira API response
@@ -87,6 +92,16 @@ func main() {
 	// Connect to Redis
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {fmt.Println("ERROR: Cannot connect to Redis")}
+
+	// iterate through each team in the config json and add the developers to the developers SET
+	deleteFromRedis(redisConn,"teams")
+	deleteFromRedis(redisConn,"developers")
+	for _,team := range config.Teams {
+			redisConn.Do("SADD","teams",team.Name)
+		for _,developer := range team.Developers {
+			redisConn.Do("SADD","developers",developer)
+		}
+	}
 
 	// Populate tasks for each developer
 	developers, err := redis.Strings(redisConn.Do("SMEMBERS", "developers"))
@@ -378,7 +393,7 @@ func writeToXLS(developers []string,redisConn redis.Conn) {
 		}
 	}
 
-    err = file.Save("MyXLSXFile.xlsx")
+    err = file.Save("MyXLSXFile.xls")
     if err != nil {
         fmt.Printf(err.Error())
     }

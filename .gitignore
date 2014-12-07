@@ -6,6 +6,10 @@
 # Folders
 _obj
 _test
+_src
+_pkg
+src
+pkg
 
 src/
 pkg/
@@ -27,3 +31,5 @@ _testmain.go
 *.test
 *.swp
 *.xlsx
+*.xls
+.DS_Store 
