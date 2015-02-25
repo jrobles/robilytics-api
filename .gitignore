@@ -32,4 +32,4 @@ _testmain.go
 *.swp
 *.xlsx
 *.xls
-.DS_Store 
+*.DS_Store 
