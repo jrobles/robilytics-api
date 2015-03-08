@@ -1,31 +1,5 @@
 {
-    "url": "https://{your.company.name}.atlassian.net/rest/api/2/",
-    "username": "your.username",
-    "password": "your.password",
-    "teams": [
-        {
-            "name": "teamA",
-            "team leader": "early.cuyler",
-            "developers": [
-                "dan.halen",
-                "granny.cuyler"
-            ]
-        },
-        {
-            "name": "teamB",
-            "team leader": "rusty.cuyler",
-            "developers": [
-                "krystal",
-                "sheriff"
-            ]
-        },
-        {
-            "name": "teamC",
-            "team leader": "lil.cuyler",
-            "devlopers": [
-                "boyd",
-				"deputy.denny"
-            ]
-        }
-    ]
+	"url":"https://{your_jira_name}.atlassian.net/rest/api/2/",
+	"username":"user.name",
+	"password":"user.password"
 }
