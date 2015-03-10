@@ -10,13 +10,14 @@ import (
 
 // Struct for the API credentials from the config.json file
 type JSONConfigData struct {
-	Url      string   `json:url`
-	Username string   `json:username`
-	Password string   `json:password`
-	Projects []string `json:projects`
+	Url        string   `json:url`
+	Username   string   `json:username`
+	Password   string   `json:password`
+	Projects   []string `json:projects`
+	Developers []string `json:developers`
 }
 
-type serDataStruct struct {
+type jiraDataStruct struct {
 	Total  int `json:total`
 	Issues []struct {
 		Id     string `json:id`
@@ -35,23 +36,8 @@ type serDataStruct struct {
 				Self string `json:self`
 			} `json:fixVersions`
 		} `json:fields`
-	} `json:issues`
-}
-
-type ddrrDataStruct struct {
-	//Total  int `json:total`
-	Issues []struct {
-		//Id        int    `json:id`
-		//Self      string `json:self`
-		Fields struct {
-			Assignee struct {
-				Name string `json:name`
-			} `json:assignee`
-		} `json:fields`
 		ChangeLog struct {
-			//Total     int `json:total`
 			Histories []struct {
-				//Id    string `json:id`
 				Items []struct {
 					Field      string `json:field`
 					FromString string `json:fromString`
@@ -59,7 +45,7 @@ type ddrrDataStruct struct {
 				} `json:items`
 			} `json:histories`
 		} `json:changelog`
-	}
+	} `json:issues`
 }
 
 func main() {
@@ -72,7 +58,9 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	developerDefectRatioReport(config, "josue")
+	for _, developer := range config.Developers {
+		fmt.Println(developer, developerDefectRatioReport(config, developer))
+	}
 	/*
 		for _, project := range config.Projects {
 			sprintEfficiencyReport(config, project)
@@ -120,7 +108,7 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 
 func teamIterationReport() {}
 
-func developerDefectRatioReport(config *JSONConfigData, developer string) {
+func developerDefectRatioReport(config *JSONConfigData, developer string) float64 {
 
 	//redisConn, err := redis.Dial("tcp", ":6379")
 	//if err != nil {
@@ -128,7 +116,7 @@ func developerDefectRatioReport(config *JSONConfigData, developer string) {
 	//}
 
 	jiraApiResponse1 := getStoriesForDeveloper(config, developer)
-	jiraStoryData1 := &ddrrDataStruct{}
+	jiraStoryData1 := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse1), &jiraStoryData1)
 
 	var total int = 0
@@ -138,17 +126,18 @@ func developerDefectRatioReport(config *JSONConfigData, developer string) {
 		for _, history := range issue.ChangeLog.Histories {
 			for _, item := range history.Items {
 				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
-					//fmt.Println(item.Field, ":", item.FromString, ":", item.ToString)
 					rejects++
+				}
+
+				if item.Field == "status" && item.ToString == "Accepted" {
+					total++
 				}
 			}
 		}
-		total++
 	}
-	//fmt.Println(developer, ":", total, "stories,", rejects, "rejected")
-
-	total = total - rejects
-	fmt.Println(developer, ":", total/rejects)
+	result := float64(rejects) / float64(total)
+	return result
+	//fmt.Printf("%f\n", result)
 }
 
 func sprintEfficiencyReport(config *JSONConfigData, project string) {
@@ -166,7 +155,7 @@ func sprintEfficiencyReport(config *JSONConfigData, project string) {
 	}
 
 	jiraApiResponse := getStoriesForProject(config, project)
-	jiraStoryData := &serDataStruct{}
+	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
 	for _, issue := range jiraStoryData.Issues {
