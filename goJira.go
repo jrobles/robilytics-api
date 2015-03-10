@@ -16,41 +16,50 @@ type JSONConfigData struct {
 	Projects []string `json:projects`
 }
 
-type jiraResponse struct {
+type serDataStruct struct {
 	Total  int `json:total`
 	Issues []struct {
 		Id     string `json:id`
 		Self   string `json:self`
 		Key    string `json:key`
 		Fields struct {
-			Assignee struct {
-				DisplayName string `json:displayName`
-			} `json:assignee`
-			IssueType struct {
-				Name string `json:name`
-			} `json:issuetype`
-			Priority struct {
-				Name string `json:name`
-			} `json:priority`
 			Status struct {
 				Name string `json:name`
 			}
-			Project struct {
-				Self string `json:self`
-				Id   string `json:id`
-				Key  string `json:key`
-				Name string `json:name`
-			} `json:project`
 			CustomField_11200 struct {
-				Self  string `json:self`
 				Value string `json:value`
-				Id    string `json:id`
 			} `json:customfield_11200`
 			FixVersions []struct {
 				Name string `json:name`
+				Id   string `json:id`
+				Self string `json:self`
 			} `json:fixVersions`
 		} `json:fields`
 	} `json:issues`
+}
+
+type ddrrDataStruct struct {
+	//Total  int `json:total`
+	Issues []struct {
+		//Id        int    `json:id`
+		//Self      string `json:self`
+		Fields struct {
+			Assignee struct {
+				Name string `json:name`
+			} `json:assignee`
+		} `json:fields`
+		ChangeLog struct {
+			//Total     int `json:total`
+			Histories []struct {
+				//Id    string `json:id`
+				Items []struct {
+					Field      string `json:field`
+					FromString string `json:fromString`
+					ToString   string `json:toString`
+				} `json:items`
+			} `json:histories`
+		} `json:changelog`
+	}
 }
 
 func main() {
@@ -63,9 +72,12 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	for _, project := range config.Projects {
-		releaseProgressReport(config, project)
-	}
+	developerDefectRatioReport(config, "josue")
+	/*
+		for _, project := range config.Projects {
+			sprintEfficiencyReport(config, project)
+		}
+	*/
 }
 
 func getStoriesForProject(config *JSONConfigData, projectName string) string {
@@ -73,6 +85,16 @@ func getStoriesForProject(config *JSONConfigData, projectName string) string {
 	endpoint += "search?jql=project="
 	endpoint += projectName
 	endpoint += "&maxResults=2000"
+	data := cURLEndpoint(config, endpoint)
+	return data
+}
+
+func getStoriesForDeveloper(config *JSONConfigData, developerName string) string {
+	endpoint := config.Url
+	endpoint += "search?jql=assignee="
+	endpoint += developerName
+	endpoint += "&maxResults=2000"
+	endpoint += "&expand=changelog"
 	data := cURLEndpoint(config, endpoint)
 	return data
 }
@@ -96,9 +118,42 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	return string(body)
 }
 
-func releaseProgressReport(config *JSONConfigData, project string) {
+func teamIterationReport() {}
 
-	completedStatus := map[string]bool{
+func developerDefectRatioReport(config *JSONConfigData, developer string) {
+
+	//redisConn, err := redis.Dial("tcp", ":6379")
+	//if err != nil {
+	//	fmt.Println("ERROR: Cannot connect to Redis")
+	//}
+
+	jiraApiResponse1 := getStoriesForDeveloper(config, developer)
+	jiraStoryData1 := &ddrrDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse1), &jiraStoryData1)
+
+	var total int = 0
+	var rejects int = 0
+
+	for _, issue := range jiraStoryData1.Issues {
+		for _, history := range issue.ChangeLog.Histories {
+			for _, item := range history.Items {
+				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
+					//fmt.Println(item.Field, ":", item.FromString, ":", item.ToString)
+					rejects++
+				}
+			}
+		}
+		total++
+	}
+	//fmt.Println(developer, ":", total, "stories,", rejects, "rejected")
+
+	total = total - rejects
+	fmt.Println(developer, ":", total/rejects)
+}
+
+func sprintEfficiencyReport(config *JSONConfigData, project string) {
+
+	completedStatusHaystack := map[string]bool{
 		"Finished":  true,
 		"Accepted":  true,
 		"Delivered": true,
@@ -111,31 +166,55 @@ func releaseProgressReport(config *JSONConfigData, project string) {
 	}
 
 	jiraApiResponse := getStoriesForProject(config, project)
-	jiraStoryData := &jiraResponse{}
+	jiraStoryData := &serDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
 	for _, issue := range jiraStoryData.Issues {
 
 		for _, fixVersion := range issue.Fields.FixVersions {
 
-			if completedStatus[issue.Fields.Status.Name] {
+			if completedStatusHaystack[issue.Fields.Status.Name] {
 				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete", 1)
 			}
 
 			// release info
 			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Version", fixVersion.Name)
+			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Id", fixVersion.Id)
+			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Url", fixVersion.Self)
 			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Team", issue.Fields.CustomField_11200.Value)
 			redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, issue.Fields.Status.Name, 1)
 			redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total", 1)
 
-			// COmpletion percentage calculation
+			// Completion percentage calculation
 			total, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total"))
 			complete, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete"))
 
 			if total > 0 {
 				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Progress", complete*100/total)
 			}
-
 		}
 	}
 }
+
+/*
+func writeToCsv() {
+	csvfile, err := os.Create("output.csv")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	defer csvfile.Close()
+
+	records := [][]string{{"item1", "value1"}, {"item2", "value2"}, {"item3", "value3"}}
+
+	writer := csv.NewWriter(csvfile)
+	for _, record := range records {
+		err := writer.Write(record)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+	}
+	writer.Flush()
+}
+*/
