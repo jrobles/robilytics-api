@@ -6,15 +6,20 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"time"
 )
 
 // Struct for the API credentials from the config.json file
 type JSONConfigData struct {
-	Url        string   `json:url`
-	Username   string   `json:username`
-	Password   string   `json:password`
-	Projects   []string `json:projects`
-	Developers []string `json:developers`
+	Url      string   `json:url`
+	Username string   `json:username`
+	Password string   `json:password`
+	Projects []string `json:projects`
+	Teams    []struct {
+		Name       string   `json:name`
+		TeamLeader string   `json:teamLeader`
+		Members    []string `json:members`
+	} `json:teams`
 }
 
 type jiraDataStruct struct {
@@ -50,6 +55,9 @@ type jiraDataStruct struct {
 
 func main() {
 
+	t := time.Now()
+	fmt.Println(t.Format("01/02/2006"))
+
 	// get the config data
 	config := &JSONConfigData{}
 	J, err := ioutil.ReadFile("config.json")
@@ -58,14 +66,15 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	for _, developer := range config.Developers {
-		fmt.Println(developer, developerDefectRatioReport(config, developer))
-	}
-	/*
-		for _, project := range config.Projects {
-			sprintEfficiencyReport(config, project)
+	for _, team := range config.Teams {
+		for _, developer := range team.Members {
+			fmt.Println(developer, getDeveloperDefectRatio(config, developer))
 		}
-	*/
+	}
+
+	for _, project := range config.Projects {
+		sprintEfficiencyReport(config, project)
+	}
 }
 
 func getStoriesForProject(config *JSONConfigData, projectName string) string {
@@ -106,38 +115,30 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	return string(body)
 }
 
-func teamIterationReport() {}
-
-func developerDefectRatioReport(config *JSONConfigData, developer string) float64 {
-
-	//redisConn, err := redis.Dial("tcp", ":6379")
-	//if err != nil {
-	//	fmt.Println("ERROR: Cannot connect to Redis")
-	//}
+func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 
 	jiraApiResponse1 := getStoriesForDeveloper(config, developer)
 	jiraStoryData1 := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse1), &jiraStoryData1)
 
-	var total int = 0
-	var rejects int = 0
+	var delivered int = 0
+	var rejected int = 0
 
 	for _, issue := range jiraStoryData1.Issues {
 		for _, history := range issue.ChangeLog.Histories {
 			for _, item := range history.Items {
 				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
-					rejects++
+					rejected++
 				}
 
 				if item.Field == "status" && item.ToString == "Accepted" {
-					total++
+					delivered++
 				}
 			}
 		}
 	}
-	result := float64(rejects) / float64(total)
+	result := float64(rejected) / float64(delivered)
 	return result
-	//fmt.Printf("%f\n", result)
 }
 
 func sprintEfficiencyReport(config *JSONConfigData, project string) {
@@ -184,26 +185,3 @@ func sprintEfficiencyReport(config *JSONConfigData, project string) {
 		}
 	}
 }
-
-/*
-func writeToCsv() {
-	csvfile, err := os.Create("output.csv")
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	defer csvfile.Close()
-
-	records := [][]string{{"item1", "value1"}, {"item2", "value2"}, {"item3", "value3"}}
-
-	writer := csv.NewWriter(csvfile)
-	for _, record := range records {
-		err := writer.Write(record)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-	}
-	writer.Flush()
-}
-*/
