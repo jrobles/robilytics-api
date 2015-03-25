@@ -31,16 +31,19 @@ type jiraDataStruct struct {
 		Self   string `json:self`
 		Key    string `json:key`
 		Fields struct {
-			Status struct {
+			TimeSpent            int `json:timespent`
+			TimeOriginalEstimate int `json:timeoriginalestimate`
+			Status               struct {
 				Name string `json:name`
 			}
 			CustomField_11200 struct {
 				Value string `json:value`
 			} `json:customfield_11200`
 			FixVersions []struct {
-				Name string `json:name`
-				Id   string `json:id`
-				Self string `json:self`
+				Name     string `json:name`
+				Id       string `json:id`
+				Self     string `json:self`
+				Released bool   `json:released`
 			} `json:fixVersions`
 		} `json:fields`
 		ChangeLog struct {
@@ -97,10 +100,10 @@ func main() {
 		}
 	}
 
-	if *report == "progressReport" {
+	if *report == "releaseReport" {
 		robi_wg.Add(len(config.Projects))
 		for _, project := range config.Projects {
-			go progressReport(config, project)
+			go releaseReport(config, project)
 		}
 		robi_wg.Wait()
 	}
@@ -171,7 +174,8 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func progressReport(config *JSONConfigData, project string) {
+func releaseReport(config *JSONConfigData, project string) {
+
 	completedStatusHaystack := map[string]bool{
 		"Finished":  true,
 		"Accepted":  true,
@@ -187,29 +191,31 @@ func progressReport(config *JSONConfigData, project string) {
 	jiraApiResponse := getStoriesForProject(config, project)
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
-
 	for _, issue := range jiraStoryData.Issues {
 
 		for _, fixVersion := range issue.Fields.FixVersions {
+			if fixVersion.Released == true {
+				if completedStatusHaystack[issue.Fields.Status.Name] {
+					redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete", 1)
+				}
 
-			if completedStatusHaystack[issue.Fields.Status.Name] {
-				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete", 1)
-			}
+				// release info
+				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Version", fixVersion.Name)
+				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Id", fixVersion.Id)
+				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Url", fixVersion.Self)
+				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Team", issue.Fields.CustomField_11200.Value)
+				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, issue.Fields.Status.Name, 1)
+				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total", 1)
+				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "EstimateHrs", issue.Fields.TimeOriginalEstimate)
+				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "ActualHrs", issue.Fields.TimeSpent)
 
-			// release info
-			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Version", fixVersion.Name)
-			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Id", fixVersion.Id)
-			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Url", fixVersion.Self)
-			redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Team", issue.Fields.CustomField_11200.Value)
-			redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, issue.Fields.Status.Name, 1)
-			redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total", 1)
+				// Completion percentage calculation
+				total, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total"))
+				complete, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete"))
 
-			// Completion percentage calculation
-			total, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total"))
-			complete, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete"))
-
-			if total > 0 {
-				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Progress", complete*100/total)
+				if total > 0 {
+					redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Progress", complete*100/total)
+				}
 			}
 		}
 	}
