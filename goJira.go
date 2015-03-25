@@ -7,6 +7,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -54,6 +55,8 @@ type jiraDataStruct struct {
 	} `json:issues`
 }
 
+var robi_wg sync.WaitGroup
+
 func main() {
 
 	report := flag.String("report", "", "Report to run")
@@ -95,9 +98,11 @@ func main() {
 	}
 
 	if *report == "progressReport" {
+		robi_wg.Add(len(config.Projects))
 		for _, project := range config.Projects {
-			progressReport(config, project)
+			go progressReport(config, project)
 		}
+		robi_wg.Wait()
 	}
 
 }
@@ -167,7 +172,6 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 }
 
 func progressReport(config *JSONConfigData, project string) {
-
 	completedStatusHaystack := map[string]bool{
 		"Finished":  true,
 		"Accepted":  true,
@@ -209,4 +213,5 @@ func progressReport(config *JSONConfigData, project string) {
 			}
 		}
 	}
+	defer robi_wg.Done()
 }
