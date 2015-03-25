@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
@@ -55,6 +56,9 @@ type jiraDataStruct struct {
 
 func main() {
 
+	report := flag.String("report", "", "Report to run")
+	flag.Parse()
+
 	t := time.Now()
 	date := t.Format("01/02/2006")
 
@@ -72,20 +76,22 @@ func main() {
 		fmt.Println("ERROR: Cannot connect to Redis")
 	}
 
-	for _, team := range config.Teams {
-		redisConn.Do("SADD", "teams", team.Name)
-		var teamTotal float64 = 0
-		var teamPop int = 0
-		for _, developer := range team.Members {
-			redisConn.Do("SADD", "developers", developer)
-			redisConn.Do("SADD", "team:"+team.Name+":developers", developer)
-			ratio := getDeveloperDefectRatio(config, developer)
-			redisConn.Do("HSET", "stats:"+developer+":defectRatio", date, ratio)
-			teamTotal = teamTotal + ratio
-			teamPop++
+	if *report == "defectRatio" {
+		for _, team := range config.Teams {
+			redisConn.Do("SADD", "teams", team.Name)
+			var teamTotal float64 = 0
+			var teamPop int = 0
+			for _, developer := range team.Members {
+				redisConn.Do("SADD", "developers", developer)
+				redisConn.Do("SADD", "team:"+team.Name+":developers", developer)
+				ratio := getDeveloperDefectRatio(config, developer)
+				redisConn.Do("HSET", "stats:"+developer+":defectRatio", date, ratio)
+				teamTotal = teamTotal + ratio
+				teamPop++
+			}
+			teamAvg := teamTotal / float64(teamPop)
+			redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 		}
-		teamAvg := teamTotal / float64(teamPop)
-		redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 	}
 	/*
 		for _, project := range config.Projects {
