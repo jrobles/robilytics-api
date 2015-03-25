@@ -93,11 +93,13 @@ func main() {
 			redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 		}
 	}
-	/*
+
+	if *report == "progressReport" {
 		for _, project := range config.Projects {
-			sprintEfficiencyReport(config, project)
+			progressReport(config, project)
 		}
-	*/
+	}
+
 }
 
 func getStoriesForProject(config *JSONConfigData, projectName string) string {
@@ -164,7 +166,7 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func sprintEfficiencyReport(config *JSONConfigData, project string) {
+func progressReport(config *JSONConfigData, project string) {
 
 	completedStatusHaystack := map[string]bool{
 		"Finished":  true,
