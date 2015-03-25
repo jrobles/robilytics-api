@@ -56,7 +56,7 @@ type jiraDataStruct struct {
 func main() {
 
 	t := time.Now()
-	fmt.Println(t.Format("01/02/2006"))
+	date := t.Format("01/02/2006")
 
 	// get the config data
 	config := &JSONConfigData{}
@@ -66,15 +66,32 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	for _, team := range config.Teams {
-		for _, developer := range team.Members {
-			fmt.Println(developer, getDeveloperDefectRatio(config, developer))
-		}
+	// Connect to Redis
+	redisConn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		fmt.Println("ERROR: Cannot connect to Redis")
 	}
 
-	for _, project := range config.Projects {
-		sprintEfficiencyReport(config, project)
+	for _, team := range config.Teams {
+		redisConn.Do("SADD", "teams", team.Name)
+		var teamTotal float64 = 0
+		var teamPop int = 0
+		for _, developer := range team.Members {
+			redisConn.Do("SADD", "developers", developer)
+			redisConn.Do("SADD", "team:"+team.Name+":developers", developer)
+			ratio := getDeveloperDefectRatio(config, developer)
+			redisConn.Do("HSET", "stats:"+developer+":defectRatio", date, ratio)
+			teamTotal = teamTotal + ratio
+			teamPop++
+		}
+		teamAvg := teamTotal / float64(teamPop)
+		redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 	}
+	/*
+		for _, project := range config.Projects {
+			sprintEfficiencyReport(config, project)
+		}
+	*/
 }
 
 func getStoriesForProject(config *JSONConfigData, projectName string) string {
