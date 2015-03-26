@@ -110,25 +110,6 @@ func main() {
 
 }
 
-func getStoriesForProject(config *JSONConfigData, projectName string) string {
-	endpoint := config.Url
-	endpoint += "search?jql=project="
-	endpoint += projectName
-	endpoint += "&maxResults=2000"
-	data := cURLEndpoint(config, endpoint)
-	return data
-}
-
-func getStoriesForDeveloper(config *JSONConfigData, developerName string) string {
-	endpoint := config.Url
-	endpoint += "search?jql=assignee="
-	endpoint += developerName
-	endpoint += "&maxResults=2000"
-	endpoint += "&expand=changelog"
-	data := cURLEndpoint(config, endpoint)
-	return data
-}
-
 func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
@@ -150,14 +131,20 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 
 func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 
-	jiraApiResponse1 := getStoriesForDeveloper(config, developer)
-	jiraStoryData1 := &jiraDataStruct{}
-	json.Unmarshal([]byte(jiraApiResponse1), &jiraStoryData1)
+	endpoint := config.Url
+	endpoint += "search?jql=assignee="
+	endpoint += developer
+	endpoint += "&maxResults=2000"
+	endpoint += "&expand=changelog"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
 	var delivered int = 0
 	var rejected int = 0
 
-	for _, issue := range jiraStoryData1.Issues {
+	for _, issue := range jiraStoryData.Issues {
 		for _, history := range issue.ChangeLog.Histories {
 			for _, item := range history.Items {
 				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
@@ -188,7 +175,12 @@ func releaseReport(config *JSONConfigData, project string) {
 		fmt.Println("ERROR: Cannot connect to Redis")
 	}
 
-	jiraApiResponse := getStoriesForProject(config, project)
+	endpoint := config.Url
+	endpoint += "search?jql=project="
+	endpoint += project
+	endpoint += "&maxResults=2000"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 	for _, issue := range jiraStoryData.Issues {
