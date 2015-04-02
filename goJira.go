@@ -7,6 +7,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -68,6 +69,9 @@ func main() {
 	t := time.Now()
 	date := t.Format("01/02/2006")
 
+	year, month := getWeekNumber("2015-03-31T10:27:37.898-0400", "T")
+	fmt.Println(year, month)
+
 	// get the config data
 	config := &JSONConfigData{}
 	J, err := ioutil.ReadFile("config.json")
@@ -99,15 +103,13 @@ func main() {
 			redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 		}
 	}
+}
 
-	if *report == "releaseReport" {
-		robi_wg.Add(len(config.Projects))
-		for _, project := range config.Projects {
-			go releaseReport(config, project)
-		}
-		robi_wg.Wait()
-	}
-
+func getWeekNumber(dateString string, delimiter string) (int, int) {
+	s := strings.Split(dateString, delimiter)
+	t, _ := time.Parse("2006-01-02", s[0])
+	year, week := t.ISOWeek()
+	return week, year
 }
 
 func cURLEndpoint(config *JSONConfigData, endpoint string) string {
@@ -136,6 +138,7 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	endpoint += developer
 	endpoint += "&maxResults=2000"
 	endpoint += "&expand=changelog"
+	endpoint += "&orderby=created"
 	jiraApiResponse := cURLEndpoint(config, endpoint)
 
 	jiraStoryData := &jiraDataStruct{}
@@ -161,55 +164,20 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func releaseReport(config *JSONConfigData, project string) {
-
-	completedStatusHaystack := map[string]bool{
-		"Finished":  true,
-		"Accepted":  true,
-		"Delivered": true,
-	}
-
-	// Connect to Redis
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		fmt.Println("ERROR: Cannot connect to Redis")
-	}
+func getDeveloperWorklog(config *JSONConfigData, developer string) {
 
 	endpoint := config.Url
-	endpoint += "search?jql=project="
-	endpoint += project
+	endpoint += "search?jql=assignee="
+	endpoint += developer
 	endpoint += "&maxResults=2000"
+	endpoint += "&expand=changelog"
+	endpoint += "&orderby=created"
 	jiraApiResponse := cURLEndpoint(config, endpoint)
 
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
 	for _, issue := range jiraStoryData.Issues {
-
-		for _, fixVersion := range issue.Fields.FixVersions {
-			if fixVersion.Released == true {
-				if completedStatusHaystack[issue.Fields.Status.Name] {
-					redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete", 1)
-				}
-
-				// release info
-				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Version", fixVersion.Name)
-				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Id", fixVersion.Id)
-				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Url", fixVersion.Self)
-				redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Team", issue.Fields.CustomField_11200.Value)
-				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, issue.Fields.Status.Name, 1)
-				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total", 1)
-				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "EstimateHrs", issue.Fields.TimeOriginalEstimate)
-				redisConn.Do("HINCRBY", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "ActualHrs", issue.Fields.TimeSpent)
-
-				// Completion percentage calculation
-				total, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Total"))
-				complete, _ := redis.Int(redisConn.Do("HGET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Complete"))
-
-				if total > 0 {
-					redisConn.Do("HSET", issue.Fields.CustomField_11200.Value+":"+fixVersion.Name, "Progress", complete*100/total)
-				}
-			}
-		}
+		fmt.Println(issue)
 	}
-	defer robi_wg.Done()
 }
