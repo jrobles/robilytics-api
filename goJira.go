@@ -25,6 +25,14 @@ type JSONConfigData struct {
 	} `json:teams`
 }
 
+type jiraWorklogStruct struct {
+	Total    int `json:total`
+	Worklogs []struct {
+		TimeSpentSeconds int    `json:timeSpentSeconds`
+		Created          string `json:created`
+	}
+}
+
 type jiraDataStruct struct {
 	Total  int `json:total`
 	Issues []struct {
@@ -69,9 +77,6 @@ func main() {
 	t := time.Now()
 	date := t.Format("01/02/2006")
 
-	year, month := getWeekNumber("2015-03-31T10:27:37.898-0400", "T")
-	fmt.Println(year, month)
-
 	// get the config data
 	config := &JSONConfigData{}
 	J, err := ioutil.ReadFile("config.json")
@@ -84,6 +89,10 @@ func main() {
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
 		fmt.Println("ERROR: Cannot connect to Redis")
+	}
+
+	if *report == "meetings" {
+		getWorklogs(config, "WM-903")
 	}
 
 	if *report == "defectRatio" {
@@ -164,7 +173,25 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func getDeveloperWorklog(config *JSONConfigData, developer string) {
+func getWorklogs(config *JSONConfigData, issue string) {
+
+	endpoint := config.Url
+	endpoint += "issue/"
+	endpoint += issue
+	endpoint += "/worklog"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
+	jiraWorklogData := &jiraWorklogStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
+
+	for _, worklog := range jiraWorklogData.Worklogs {
+		year, month := getWeekNumber(worklog.Created, "T")
+		fmt.Println(year, month)
+
+	}
+}
+
+func getDoop(config *JSONConfigData, developer string) []string {
 
 	endpoint := config.Url
 	endpoint += "search?jql=assignee="
@@ -177,7 +204,22 @@ func getDeveloperWorklog(config *JSONConfigData, developer string) {
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
+	var delivered int = 0
+	var rejected int = 0
+
 	for _, issue := range jiraStoryData.Issues {
-		fmt.Println(issue)
+		for _, history := range issue.ChangeLog.Histories {
+			for _, item := range history.Items {
+				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
+					rejected++
+				}
+
+				if item.Field == "status" && item.ToString == "Accepted" {
+					delivered++
+				}
+			}
+		}
 	}
+	result := float64(rejected) / float64(delivered)
+	return result
 }
