@@ -7,6 +7,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,14 @@ func main() {
 	}
 
 	if *report == "meetings" {
-		getWorklogs(config, "WM-903")
+		for _, team := range config.Teams {
+			for _, developer := range team.Members {
+				workLogs := getDeveloperMeetngLog(config, developer)
+				for _, key := range workLogs {
+					getWorklogs(config, key, developer)
+				}
+			}
+		}
 	}
 
 	if *report == "defectRatio" {
@@ -117,7 +125,7 @@ func main() {
 func getWeekNumber(dateString string, delimiter string) (int, int) {
 	s := strings.Split(dateString, delimiter)
 	t, _ := time.Parse("2006-01-02", s[0])
-	year, week := t.ISOWeek()
+	week, year := t.ISOWeek()
 	return week, year
 }
 
@@ -173,11 +181,16 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func getWorklogs(config *JSONConfigData, issue string) {
+func getWorklogs(config *JSONConfigData, issueKey string, developer string) {
+
+	redisConn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		fmt.Println("ERROR: Cannot connect to Redis")
+	}
 
 	endpoint := config.Url
 	endpoint += "issue/"
-	endpoint += issue
+	endpoint += issueKey
 	endpoint += "/worklog"
 	jiraApiResponse := cURLEndpoint(config, endpoint)
 
@@ -185,41 +198,28 @@ func getWorklogs(config *JSONConfigData, issue string) {
 	json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
 
 	for _, worklog := range jiraWorklogData.Worklogs {
-		year, month := getWeekNumber(worklog.Created, "T")
-		fmt.Println(year, month)
-
+		year, week := getWeekNumber(worklog.Created, "T")
+		y := strconv.Itoa(year)
+		redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds)
 	}
 }
 
-func getDoop(config *JSONConfigData, developer string) []string {
+func getDeveloperMeetngLog(config *JSONConfigData, developer string) map[string]string {
+
+	stories := make(map[string]string)
 
 	endpoint := config.Url
 	endpoint += "search?jql=assignee="
 	endpoint += developer
-	endpoint += "&maxResults=2000"
-	endpoint += "&expand=changelog"
-	endpoint += "&orderby=created"
+	endpoint += "%20and%20issueType=Meeting"
+	endpoint += "%20and%20status=Doing"
 	jiraApiResponse := cURLEndpoint(config, endpoint)
 
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
-	var delivered int = 0
-	var rejected int = 0
-
 	for _, issue := range jiraStoryData.Issues {
-		for _, history := range issue.ChangeLog.Histories {
-			for _, item := range history.Items {
-				if item.Field == "status" && item.FromString == "Accepted" && item.ToString == "Rejected" {
-					rejected++
-				}
-
-				if item.Field == "status" && item.ToString == "Accepted" {
-					delivered++
-				}
-			}
-		}
+		stories[issue.Id] = issue.Key
 	}
-	result := float64(rejected) / float64(delivered)
-	return result
+	return stories
 }
