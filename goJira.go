@@ -31,6 +31,7 @@ type jiraWorklogStruct struct {
 	Worklogs []struct {
 		TimeSpentSeconds int    `json:timeSpentSeconds`
 		Created          string `json:created`
+		Id               string `json:id`
 	}
 }
 
@@ -96,8 +97,9 @@ func main() {
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				workLogs := getDeveloperMeetngLog(config, developer)
-				for _, key := range workLogs {
-					getWorklogs(config, key, developer)
+				for _, v := range workLogs {
+					getWorklogs(config, v, developer)
+					//fmt.Println(k, v)
 				}
 			}
 		}
@@ -198,9 +200,13 @@ func getWorklogs(config *JSONConfigData, issueKey string, developer string) {
 	json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
 
 	for _, worklog := range jiraWorklogData.Worklogs {
-		year, week := getWeekNumber(worklog.Created, "T")
-		y := strconv.Itoa(year)
-		redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds)
+		check, _ := redis.Int(redisConn.Do("SISMEMBER", "workLogs:"+developer, worklog.Id))
+		if check == 0 {
+			year, week := getWeekNumber(worklog.Created, "T")
+			y := strconv.Itoa(year)
+			redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds)
+			redisConn.Do("SADD", "workLogs:"+developer, worklog.Id)
+		}
 	}
 }
 
