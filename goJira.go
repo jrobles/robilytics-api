@@ -72,7 +72,6 @@ type jiraDataStruct struct {
 var robi_wg sync.WaitGroup
 
 func main() {
-
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
 
@@ -94,15 +93,13 @@ func main() {
 	}
 
 	if *report == "meetings" {
+		robi_wg.Add(getNumDevelopers(config))
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
-				workLogs := getDeveloperMeetngLog(config, developer)
-				for _, v := range workLogs {
-					getWorklogs(config, v, developer)
-					//fmt.Println(k, v)
-				}
+				go getWorklogData(config, developer)
 			}
 		}
+		robi_wg.Wait()
 	}
 
 	if *report == "defectRatio" {
@@ -122,6 +119,16 @@ func main() {
 			redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
 		}
 	}
+}
+
+func getNumDevelopers(config *JSONConfigData) int {
+	developers := make(map[string]string)
+	for _, team := range config.Teams {
+		for _, developer := range team.Members {
+			developers[developer] = developer
+		}
+	}
+	return len(developers)
 }
 
 func getWeekNumber(dateString string, delimiter string) (int, int) {
@@ -183,49 +190,42 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func getWorklogs(config *JSONConfigData, issueKey string, developer string) {
+func getWorklogData(config *JSONConfigData, developer string) {
 
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
 		fmt.Println("ERROR: Cannot connect to Redis")
 	}
 
-	endpoint := config.Url
-	endpoint += "issue/"
-	endpoint += issueKey
-	endpoint += "/worklog"
-	jiraApiResponse := cURLEndpoint(config, endpoint)
-
-	jiraWorklogData := &jiraWorklogStruct{}
-	json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
-
-	for _, worklog := range jiraWorklogData.Worklogs {
-		check, _ := redis.Int(redisConn.Do("SISMEMBER", "workLogs:"+developer, worklog.Id))
-		if check == 0 {
-			year, week := getWeekNumber(worklog.Created, "T")
-			y := strconv.Itoa(year)
-			redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds)
-			redisConn.Do("SADD", "workLogs:"+developer, worklog.Id)
-		}
-	}
-}
-
-func getDeveloperMeetngLog(config *JSONConfigData, developer string) map[string]string {
-
-	stories := make(map[string]string)
-
-	endpoint := config.Url
-	endpoint += "search?jql=assignee="
-	endpoint += developer
-	endpoint += "%20and%20issueType=Meeting"
-	endpoint += "%20and%20status=Doing"
-	jiraApiResponse := cURLEndpoint(config, endpoint)
+	ep1 := config.Url
+	ep1 += "search?jql=assignee="
+	ep1 += developer
+	ep1 += "%20and%20issueType=Meeting"
+	ep1 += "%20and%20status=Doing"
+	jiraApiResponse := cURLEndpoint(config, ep1)
 
 	jiraStoryData := &jiraDataStruct{}
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
 	for _, issue := range jiraStoryData.Issues {
-		stories[issue.Id] = issue.Key
+		ep2 := config.Url
+		ep2 += "issue/"
+		ep2 += issue.Key
+		ep2 += "/worklog"
+		jiraApiResponse := cURLEndpoint(config, ep2)
+
+		jiraWorklogData := &jiraWorklogStruct{}
+		json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
+
+		for _, worklog := range jiraWorklogData.Worklogs {
+			check, _ := redis.Int(redisConn.Do("SISMEMBER", "workLogs:"+developer, worklog.Id))
+			if check == 0 {
+				year, week := getWeekNumber(worklog.Created, "T")
+				y := strconv.Itoa(year)
+				redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds/60)
+				redisConn.Do("SADD", "workLogs:"+developer, worklog.Id)
+			}
+		}
 	}
-	return stories
+	defer robi_wg.Done()
 }
