@@ -113,9 +113,9 @@ func main() {
 			var teamPop int = 0
 			for _, developer := range team.Members {
 				redisConn.Do("SADD", "data:developers", developer)
-				redisConn.Do("SADD", "data:team:"+team.Name+":developers", developer)
+				redisConn.Do("SADD", "data:team:"+team.Name+":developers:", developer)
 				ratio := getDeveloperDefectRatio(config, developer)
-				redisConn.Do("HSET", "stats:defectRatio:"+developer, w+":"+y, ratio)
+				redisConn.Do("HSET", "stats:defectRatio:developer:"+developer, w+":"+y, ratio)
 				teamTotal = teamTotal + ratio
 				teamPop++
 			}
@@ -212,14 +212,14 @@ func getWorklogData(config *JSONConfigData, developer string) {
 		json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
 
 		for _, worklog := range jiraWorklogData.Worklogs {
-			check, _ := redis.Int(redisConn.Do("SISMEMBER", "data:workLogs:"+developer, worklog.Id))
+			check, _ := redis.Int(redisConn.Do("SISMEMBER", "data:workLogs:developer:"+developer, worklog.Id))
 			if check == 0 {
 				year, week := getWeekNumber(worklog.Created, "T")
 				y := strconv.Itoa(year)
 				w := strconv.Itoa(week)
 				//redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds/60)
-				redisConn.Do("HINCRBY", "stats:meetings:"+developer, w+":"+y, worklog.TimeSpentSeconds/60)
-				redisConn.Do("SADD", "data:workLogs:"+developer, worklog.Id)
+				redisConn.Do("HINCRBY", "stats:meetings:developer:"+developer, w+":"+y, worklog.TimeSpentSeconds/60)
+				redisConn.Do("SADD", "data:workLogs:developer:"+developer, worklog.Id)
 			}
 		}
 	}
