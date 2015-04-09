@@ -75,9 +75,6 @@ func main() {
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
 
-	t := time.Now()
-	date := t.Format("01/02/2006")
-
 	// get the config data
 	config := &JSONConfigData{}
 	J, err := ioutil.ReadFile("config.json")
@@ -93,7 +90,8 @@ func main() {
 	}
 
 	if *report == "meetings" {
-		robi_wg.Add(getNumDevelopers(config))
+		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
+		robi_wg.Add(numDevelopers)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getWorklogData(config, developer)
@@ -103,32 +101,28 @@ func main() {
 	}
 
 	if *report == "defectRatio" {
+		t := time.Now()
+		date := t.Format("01/02/2006")
+		year, week := t.ISOWeek()
+		y := strconv.Itoa(year)
+		w := strconv.Itoa(week)
+
 		for _, team := range config.Teams {
-			redisConn.Do("SADD", "teams", team.Name)
+			redisConn.Do("SADD", "data:teams", team.Name)
 			var teamTotal float64 = 0
 			var teamPop int = 0
 			for _, developer := range team.Members {
-				redisConn.Do("SADD", "developers", developer)
-				redisConn.Do("SADD", "team:"+team.Name+":developers", developer)
+				redisConn.Do("SADD", "data:developers", developer)
+				redisConn.Do("SADD", "data:team:"+team.Name+":developers", developer)
 				ratio := getDeveloperDefectRatio(config, developer)
-				redisConn.Do("HSET", "stats:"+developer+":defectRatio", date, ratio)
+				redisConn.Do("HSET", "stats:defectRatio:"+developer, w+":"+y, ratio)
 				teamTotal = teamTotal + ratio
 				teamPop++
 			}
 			teamAvg := teamTotal / float64(teamPop)
-			redisConn.Do("HSET", "stats:"+team.Name+":defectRatio", date, teamAvg)
+			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
 	}
-}
-
-func getNumDevelopers(config *JSONConfigData) int {
-	developers := make(map[string]string)
-	for _, team := range config.Teams {
-		for _, developer := range team.Members {
-			developers[developer] = developer
-		}
-	}
-	return len(developers)
 }
 
 func getWeekNumber(dateString string, delimiter string) (int, int) {
@@ -147,8 +141,8 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	client := http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Println("ERROR:Cannot authenticate to Jira API")
 	}
+
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println("ERROR:Cannot read API response")
@@ -218,12 +212,14 @@ func getWorklogData(config *JSONConfigData, developer string) {
 		json.Unmarshal([]byte(jiraApiResponse), &jiraWorklogData)
 
 		for _, worklog := range jiraWorklogData.Worklogs {
-			check, _ := redis.Int(redisConn.Do("SISMEMBER", "workLogs:"+developer, worklog.Id))
+			check, _ := redis.Int(redisConn.Do("SISMEMBER", "data:workLogs:"+developer, worklog.Id))
 			if check == 0 {
 				year, week := getWeekNumber(worklog.Created, "T")
 				y := strconv.Itoa(year)
-				redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds/60)
-				redisConn.Do("SADD", "workLogs:"+developer, worklog.Id)
+				w := strconv.Itoa(week)
+				//redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds/60)
+				redisConn.Do("HINCRBY", "stats:meetings:"+developer, w+":"+y, worklog.TimeSpentSeconds/60)
+				redisConn.Do("SADD", "data:workLogs:"+developer, worklog.Id)
 			}
 		}
 	}
