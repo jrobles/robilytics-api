@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,8 +43,9 @@ type jiraDataStruct struct {
 		Self   string `json:self`
 		Key    string `json:key`
 		Fields struct {
-			TimeSpent            int `json:timespent`
-			TimeOriginalEstimate int `json:timeoriginalestimate`
+			TimeSpent            int    `json:timespent`
+			TimeOriginalEstimate int    `json:timeoriginalestimate`
+			Updated              string `json:updated`
 			Status               struct {
 				Name string `json:name`
 			}
@@ -59,7 +61,8 @@ type jiraDataStruct struct {
 		} `json:fields`
 		ChangeLog struct {
 			Histories []struct {
-				Items []struct {
+				Created string `json:created`
+				Items   []struct {
 					Field      string `json:field`
 					FromString string `json:fromString`
 					ToString   string `json:toString`
@@ -87,6 +90,23 @@ func main() {
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
 		fmt.Println("ERROR: Cannot connect to Redis")
+	}
+
+	if *report == "velocity" {
+		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
+		robi_wg.Add(numDevelopers)
+		for _, team := range config.Teams {
+			for _, developer := range team.Members {
+				getDeveloperVelocity(config, developer)
+			}
+		}
+		robi_wg.Wait()
+	}
+
+	if *report == "estimateAccuracy" {
+		for _, project := range config.Projects {
+			getEstimateAccuracy(config, project)
+		}
 	}
 
 	if *report == "meetings" {
@@ -149,6 +169,43 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	}
 	res.Body.Close()
 	return string(body)
+}
+
+func getDeveloperVelocity(config *JSONConfigData, developer string) {
+
+	redisConn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		fmt.Println("ERROR: Cannot connect to Redis")
+	}
+
+	endpoint := config.Url
+	endpoint += "search?jql=assignee="
+	endpoint += developer
+	endpoint += "&maxResults=20"
+	endpoint += "&expand=changelog"
+	endpoint += "&orderby=created"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
+	for _, issue := range jiraStoryData.Issues {
+		for _, history := range issue.ChangeLog.Histories {
+			for _, item := range history.Items {
+				if item.Field == "status" && item.ToString == "Finished" && issue.Fields.TimeSpent > 0 {
+					year, week := getWeekNumber(history.Created, "T")
+					y := strconv.Itoa(year)
+					w := strconv.Itoa(week)
+					//fmt.Println(history.Created, item.ToString, issue.Fields.TimeSpent)
+					redisConn.Do("HINCRBY", "temp:"+developer, y+":"+w+":TOTAL", issue.Fields.TimeSpent)
+					redisConn.Do("HINCRBY", "temp:"+developer, y+":"+w+":ENTRIES", 1)
+
+					redisConn.Do("DEL", "temp:"+developer)
+				}
+			}
+		}
+	}
+	defer robi_wg.Done()
 }
 
 func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
@@ -217,11 +274,46 @@ func getWorklogData(config *JSONConfigData, developer string) {
 				year, week := getWeekNumber(worklog.Created, "T")
 				y := strconv.Itoa(year)
 				w := strconv.Itoa(week)
-				//redisConn.Do("HINCRBY", "stats:"+y+":"+developer+":meetings", week, worklog.TimeSpentSeconds/60)
 				redisConn.Do("HINCRBY", "stats:meetings:developer:"+developer, w+":"+y, worklog.TimeSpentSeconds/60)
 				redisConn.Do("SADD", "data:workLogs:developer:"+developer, worklog.Id)
 			}
 		}
 	}
 	defer robi_wg.Done()
+}
+
+func getEstimateAccuracy(config *JSONConfigData, project string) {
+	/*
+		// Connect to Redis
+		redisConn, err := redis.Dial("tcp", ":6379")
+		if err != nil {
+			fmt.Println("ERROR: Cannot connect to Redis")
+		}
+	*/
+	jiraApiResponse := getStoriesForProject(config, project)
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
+	for _, issue := range jiraStoryData.Issues {
+		if issue.Fields.Status.Name == "Accepted" {
+			if issue.Fields.TimeSpent > 0 && issue.Fields.TimeOriginalEstimate > 0 {
+				actual := issue.Fields.TimeSpent
+				measured := issue.Fields.TimeOriginalEstimate
+				difference := math.Abs(float64(actual - measured))
+				d2 := actual - int(difference)
+				d3 := int(math.Abs(float64(d2*100))) / actual
+				//fmt.Println(d3, issue.Fields.TimeOriginalEstimate, issue.Fields.TimeSpent)
+				fmt.Println(difference, d2, d3)
+			}
+		}
+	}
+}
+
+func getStoriesForProject(config *JSONConfigData, projectName string) string {
+	endpoint := config.Url
+	endpoint += "search?jql=project="
+	endpoint += projectName
+	endpoint += "&maxResults=2000"
+	data := cURLEndpoint(config, endpoint)
+	return data
 }
