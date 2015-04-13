@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -102,11 +101,6 @@ func main() {
 			}
 		}
 		robi_wg.Wait()
-
-	case "estimateAccuracy":
-		for _, project := range config.Projects {
-			getEstimateAccuracy(config, project)
-		}
 
 	case "meetings":
 		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
@@ -291,40 +285,4 @@ func getWorklogData(config *JSONConfigData, developer string) {
 		}
 	}
 	defer robi_wg.Done()
-}
-
-func getEstimateAccuracy(config *JSONConfigData, project string) {
-	/*
-		// Connect to Redis
-		redisConn, err := redis.Dial("tcp", ":6379")
-		if err != nil {
-			fmt.Println("ERROR: Cannot connect to Redis")
-		}
-	*/
-	jiraApiResponse := getStoriesForProject(config, project)
-	jiraStoryData := &jiraDataStruct{}
-	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
-
-	for _, issue := range jiraStoryData.Issues {
-		if issue.Fields.Status.Name == "Accepted" {
-			if issue.Fields.TimeSpent > 0 && issue.Fields.TimeOriginalEstimate > 0 {
-				actual := issue.Fields.TimeSpent
-				measured := issue.Fields.TimeOriginalEstimate
-				difference := math.Abs(float64(actual - measured))
-				d2 := actual - int(difference)
-				d3 := int(math.Abs(float64(d2*100))) / actual
-				//fmt.Println(d3, issue.Fields.TimeOriginalEstimate, issue.Fields.TimeSpent)
-				fmt.Println(difference, d2, d3)
-			}
-		}
-	}
-}
-
-func getStoriesForProject(config *JSONConfigData, projectName string) string {
-	endpoint := config.Url
-	endpoint += "search?jql=project="
-	endpoint += projectName
-	endpoint += "&maxResults=2000"
-	data := cURLEndpoint(config, endpoint)
-	return data
 }
