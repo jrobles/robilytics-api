@@ -92,24 +92,23 @@ func main() {
 		fmt.Println("ERROR: Cannot connect to Redis")
 	}
 
-	if *report == "velocity" {
+	switch *report {
+	case "velocity":
 		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
 		robi_wg.Add(numDevelopers)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
-				getDeveloperVelocity(config, developer)
+				go getDeveloperVelocity(config, developer)
 			}
 		}
 		robi_wg.Wait()
-	}
 
-	if *report == "estimateAccuracy" {
+	case "estimateAccuracy":
 		for _, project := range config.Projects {
 			getEstimateAccuracy(config, project)
 		}
-	}
 
-	if *report == "meetings" {
+	case "meetings":
 		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
 		robi_wg.Add(numDevelopers)
 		for _, team := range config.Teams {
@@ -118,9 +117,8 @@ func main() {
 			}
 		}
 		robi_wg.Wait()
-	}
 
-	if *report == "defectRatio" {
+	case "defectRatio":
 		t := time.Now()
 		date := t.Format("01/02/2006")
 		year, week := t.ISOWeek()
@@ -142,6 +140,7 @@ func main() {
 			teamAvg := teamTotal / float64(teamPop)
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
+
 	}
 }
 
@@ -173,6 +172,9 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 
 func getDeveloperVelocity(config *JSONConfigData, developer string) {
 
+	var y string = "doop"
+	var w string = "yyy"
+
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
 		fmt.Println("ERROR: Cannot connect to Redis")
@@ -190,18 +192,28 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
 
 	for _, issue := range jiraStoryData.Issues {
-		for _, history := range issue.ChangeLog.Histories {
-			for _, item := range history.Items {
-				if item.Field == "status" && item.ToString == "Finished" && issue.Fields.TimeSpent > 0 {
-					year, week := getWeekNumber(history.Created, "T")
-					y := strconv.Itoa(year)
-					w := strconv.Itoa(week)
-					//fmt.Println(history.Created, item.ToString, issue.Fields.TimeSpent)
-					redisConn.Do("HINCRBY", "temp:"+developer, y+":"+w+":TOTAL", issue.Fields.TimeSpent)
-					redisConn.Do("HINCRBY", "temp:"+developer, y+":"+w+":ENTRIES", 1)
-
-					redisConn.Do("DEL", "temp:"+developer)
+		check, _ := redis.Int(redisConn.Do("SISMEMBER", "data:velocityLogs:developer:"+developer, issue.Id))
+		if check == 0 {
+			for _, history := range issue.ChangeLog.Histories {
+				year, week := getWeekNumber(history.Created, "T")
+				y = strconv.Itoa(year)
+				w = strconv.Itoa(week)
+				for _, item := range history.Items {
+					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.TimeSpent > 0 {
+						redisConn.Do("HINCRBY", "stats:velocity:developer:"+developer, w+":"+y+":TOTAL", issue.Fields.TimeSpent)
+						redisConn.Do("HINCRBY", "stats:velocity:developer:"+developer, w+":"+y+":ENTRIES", 1)
+						fmt.Println("stats:velocity:developer:"+developer, w+":"+y+":TOTAL")
+					}
 				}
+			}
+			total, _ := redis.Int(redisConn.Do("HGET", "stats:velocity:developer:"+developer, w+":"+y+":TOTAL"))
+			entries, _ := redis.Int(redisConn.Do("HGET", "stats:velocity:developer:"+developer, w+":"+y+":ENTRIES"))
+			if total > 0 && entries > 0 {
+				velocity := (total / entries) / 3600
+				redisConn.Do("HSET", "stats:velocity:developer:"+developer, w+":"+y+":VELOCITY", velocity)
+				redisConn.Do("SADD", "data:velocityLogs:developer:"+developer, issue.Id)
+			} else {
+				fmt.Println("DAMN YOU!!", developer, y, w)
 			}
 		}
 	}
