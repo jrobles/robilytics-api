@@ -202,20 +202,16 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.TimeSpent > 0 {
 						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":TOTAL", issue.Fields.TimeSpent)
 						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":ENTRIES", 1)
-						//fmt.Println("stats:velocity:developer:"+developer, w+":"+y+":TOTAL")
 					}
 				}
 			}
 			total, _ := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":TOTAL"))
 			entries, _ := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":ENTRIES"))
 			if total > 0 && entries > 0 {
-				fmt.Println(total, entries)
-				fmt.Println(issue.Key, developer)
 				velocity := (total / entries) / 60
 				redisConn.Do("HSET", "stats:velocity:developer:"+developer, w+":"+y, velocity)
 				redisConn.Do("SADD", "data:velocityLogs:developer:"+developer, issue.Id)
 			} else {
-				//fmt.Println(issue.Self, issue.Key)
 				// Add to exception log / email
 			}
 		}
