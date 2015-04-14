@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,23 +92,19 @@ func main() {
 	config := &JSONConfigData{}
 	J, err := ioutil.ReadFile("config.json")
 	if err != nil {
-		panic(err)
+		errorToLog("Could not read config.json", err)
 	}
 	json.Unmarshal([]byte(J), &config)
 
 	// Connect to Redis
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
-		panic(err)
+		errorToLog("Could not connect to Redis server", err)
 	}
 
 	switch *report {
 	case "velocity":
-		numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
-		if err != nil {
-			panic(err)
-		}
-		robi_wg.Add(numDevelopers)
+		robi_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getDeveloperVelocity(config, developer)
@@ -115,11 +113,7 @@ func main() {
 		robi_wg.Wait()
 
 	case "meetings":
-		numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
-		if err != nil {
-			panic(err)
-		}
-		robi_wg.Add(numDevelopers)
+		robi_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getWorklogData(config, developer)
@@ -150,11 +144,7 @@ func main() {
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
 	case "noEstimateWork":
-		numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
-		if err != nil {
-			panic(err)
-		}
-		robi_wg.Add(numDevelopers)
+		robi_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getActiveStoriesWithNoEstimate(config, developer, "Doing")
@@ -168,7 +158,7 @@ func getWeekNumber(dateString string, delimiter string) (int, int) {
 	s := strings.Split(dateString, delimiter)
 	t, err := time.Parse("2006-01-02", s[0])
 	if err != nil {
-		panic(err)
+		errorToLog("Could not parse time string", err)
 	}
 	week, year := t.ISOWeek()
 	return week, year
@@ -177,18 +167,18 @@ func getWeekNumber(dateString string, delimiter string) (int, int) {
 func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
-		panic(err)
+		errorToLog("Could not connect to EP", err)
 	}
 	req.SetBasicAuth(config.Username, config.Password)
 	client := http.Client{}
 	res, err := client.Do(req)
 	if err != nil {
-		panic(err)
+		errorToLog("Could not authenticate to EP", err)
 	}
 
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		panic(err)
+		errorToLog("Could not read EP response", err)
 	}
 	res.Body.Close()
 	return string(body)
@@ -201,7 +191,7 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
-		panic(err)
+		errorToLog("Could not connect to Redis DB", err)
 	}
 
 	endpoint := config.Url
@@ -218,7 +208,7 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 	for _, issue := range jiraStoryData.Issues {
 		check, err := redis.Int(redisConn.Do("SISMEMBER", "data:velocityLogs:developer:"+developer, issue.Id))
 		if err != nil {
-			panic(err)
+			errorToLog("Could not match issue id against velocityLogs", err)
 		}
 		if check == 0 {
 			for _, history := range issue.ChangeLog.Histories {
@@ -234,11 +224,11 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 			}
 			total, err := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":TOTAL"))
 			if err != nil {
-				panic(err)
+				errorToLog("Could not get the total number of hours", err)
 			}
 			entries, err := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":ENTRIES"))
 			if err != nil {
-				panic(err)
+				errorToLog("Could not get the total num of entries", err)
 			}
 			if total > 0 && entries > 0 {
 				velocity := (total / entries) / 60
@@ -289,7 +279,7 @@ func getWorklogData(config *JSONConfigData, developer string) {
 
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
-		panic(err)
+		errorToLog("Could not connect to Redis DB", err)
 	}
 
 	ep1 := config.Url
@@ -315,7 +305,7 @@ func getWorklogData(config *JSONConfigData, developer string) {
 		for _, worklog := range jiraWorklogData.Worklogs {
 			check, err := redis.Int(redisConn.Do("SISMEMBER", "data:workLogs:developer:"+developer, worklog.Id))
 			if err != nil {
-				panic(err)
+				errorToLog("Could not match worklogID againt worklog SET for "+developer, err)
 			}
 			if check == 0 {
 				year, week := getWeekNumber(worklog.Created, "T")
@@ -395,4 +385,28 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string, st
 	}
 
 	defer robi_wg.Done()
+}
+
+func errorToLog(logData string, err error) {
+	f, err := os.OpenFile("/var/log/robyLytics.error.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Println("ERROR: Cannot write to log file")
+		panic(err)
+	}
+	defer f.Close()
+	log.SetOutput(f)
+	log.Println(logData, err)
+}
+
+func getNumDevelopers() int {
+	redisConn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		errorToLog("Cannot connect to Redis server", err)
+	}
+	numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
+	if err != nil {
+		errorToLog("Cannot obtain the number of developers from data:developers SET", err)
+	}
+	return numDevelopers
+
 }
