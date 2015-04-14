@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"net/mail"
+	"net/smtp"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,11 +18,13 @@ import (
 
 // Struct for the API credentials from the config.json file
 type JSONConfigData struct {
-	Url      string   `json:url`
-	Username string   `json:username`
-	Password string   `json:password`
-	Projects []string `json:projects`
-	Teams    []struct {
+	Url           string   `json:url`
+	Username      string   `json:username`
+	Password      string   `json:password`
+	EmailAddress  string   `json:emailAddress`
+	EmailPassword string   `json:emailPassword`
+	Projects      []string `json:projects`
+	Teams         []struct {
 		Name       string   `json:name`
 		TeamLeader string   `json:teamLeader`
 		Members    []string `json:members`
@@ -51,6 +56,9 @@ type jiraDataStruct struct {
 			CustomField_11200 struct {
 				Value string `json:value`
 			} `json:customfield_11200`
+			CustomField_10700 struct {
+				Value string `json:value`
+			} `json:customfield_10700`
 			FixVersions []struct {
 				Name     string `json:name`
 				Id       string `json:id`
@@ -134,7 +142,15 @@ func main() {
 			teamAvg := teamTotal / float64(teamPop)
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
-
+	case "noEstimateWork":
+		numDevelopers, _ := redis.Int(redisConn.Do("SCARD", "data:developers"))
+		robi_wg.Add(numDevelopers)
+		for _, team := range config.Teams {
+			for _, developer := range team.Members {
+				go getActiveStoriesWithNoEstimate(config, developer, "Doing")
+			}
+		}
+		robi_wg.Wait()
 	}
 }
 
@@ -284,5 +300,73 @@ func getWorklogData(config *JSONConfigData, developer string) {
 			}
 		}
 	}
+	defer robi_wg.Done()
+}
+
+func encodeRFC2047(String string) string {
+	// use mail's rfc2047 to encode any string
+	addr := mail.Address{String, ""}
+	return strings.Trim(addr.String(), " <>")
+}
+
+func sendEmail(config *JSONConfigData, recipient string, body string, subject string) {
+
+	smtpServer := "smtp.gmail.com"
+	auth := smtp.PlainAuth(
+		"",
+		config.EmailAddress,
+		config.EmailPassword,
+		smtpServer,
+	)
+
+	header := make(map[string]string)
+	header["Return-Path"] = "no-reply@robilytics.net"
+	header["From"] = "no-reply@robilytics.net"
+	header["To"] = recipient
+	header["Subject"] = encodeRFC2047(subject)
+	header["MIME-Version"] = "1.0"
+	header["Content-Type"] = "text/plain; charset=\"utf-8\""
+	header["Content-Transfer-Encoding"] = "base64"
+
+	message := ""
+	for k, v := range header {
+		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	}
+	message += "\r\n" + base64.StdEncoding.EncodeToString([]byte(body))
+
+	// Connect to the server, authenticate, set the sender and recipient,
+	// and send the email all in one step.
+	err := smtp.SendMail(
+		smtpServer+":587",
+		auth,
+		"no-reply@robilytics.net",
+		[]string{recipient},
+		[]byte(message),
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string, status string) {
+	ep := config.Url
+	ep += "search?jql=assignee="
+	ep += developer
+	ep += "%20and%20status="
+	ep += status
+	jiraApiResponse := cURLEndpoint(config, ep)
+
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
+	for _, issue := range jiraStoryData.Issues {
+		if issue.Fields.TimeOriginalEstimate == 0 || issue.Fields.CustomField_10700.Value != "Yes" {
+			body := "Story: " + issue.Key
+			body += "\r\n"
+			body += "Assignee: " + developer
+			sendEmail(config, "jose.robles@kreatetechnology.com", body, "ROBILYTICS: Active stories with no estimate")
+		}
+	}
+
 	defer robi_wg.Done()
 }
