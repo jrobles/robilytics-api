@@ -314,7 +314,7 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string, st
 
 	for _, issue := range jiraStoryData.Issues {
 		if issue.Fields.TimeOriginalEstimate == 0 || issue.Fields.CustomField_10700.Value != "Yes" {
-			if issue.Fields.IssueType.Name == "Meeting" {
+			if issue.Fields.IssueType.Name != "Meeting" {
 				body := "Story: " + issue.Key
 				body += "\r\n"
 				body += "Assignee: " + developer
