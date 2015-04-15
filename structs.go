@@ -34,7 +34,10 @@ type jiraDataStruct struct {
 			TimeSpent            int    `json:timespent`
 			TimeOriginalEstimate int    `json:timeoriginalestimate`
 			Updated              string `json:updated`
-			Status               struct {
+			IssueType            struct {
+				Name string `json:string`
+			}
+			Status struct {
 				Name string `json:name`
 			}
 			CustomField_11200 struct {

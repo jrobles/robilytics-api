@@ -314,10 +314,12 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string, st
 
 	for _, issue := range jiraStoryData.Issues {
 		if issue.Fields.TimeOriginalEstimate == 0 || issue.Fields.CustomField_10700.Value != "Yes" {
-			body := "Story: " + issue.Key
-			body += "\r\n"
-			body += "Assignee: " + developer
-			sendEmail(config, "jose.robles@kreatetechnology.com", body, "ROBILYTICS: Active stories with no estimate")
+			if issue.Fields.IssueType.Name == "Meeting" {
+				body := "Story: " + issue.Key
+				body += "\r\n"
+				body += "Assignee: " + developer
+				sendEmail(config, "jose.robles@kreatetechnology.com", body, "ROBILYTICS: Active stories with no estimate")
+			}
 		}
 	}
 
