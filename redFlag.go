@@ -5,10 +5,10 @@ import (
 	"strconv"
 )
 
-var body string = ""
-var count int = 0
-
 func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string) {
+
+	var bodyNE string = ""
+	var countNE int = 0
 
 	ep := config.Url
 	ep += "search?jql=assignee="
@@ -23,13 +23,13 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string) {
 		estimate := strconv.Itoa(issue.Fields.TimeOriginalEstimate)
 		if estimate == "" || issue.Fields.CustomField_10700.Value != "Yes" {
 			if issue.Fields.IssueType.Name != "Meeting" {
-				body += "Story: " + issue.Key
-				body += "\r\n"
-				count++
+				bodyNE += "Story: " + issue.Key
+				bodyNE += "\r\n"
+				countNE++
 			}
 		}
-		if count > 0 {
-			sendEmail(config, "jose.robles@kreatetechnology.com", body, "ROBILYTICS: Active stories with no estimate: "+developer)
+		if countNE > 0 {
+			sendEmail(config, "jose.robles@kreatetechnology.com", bodyNE, "ROBILYTICS: Active stories with no estimate: "+developer)
 		}
 	}
 
@@ -37,6 +37,9 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string) {
 }
 
 func getStoriesWithNoLoggedHrs(config *JSONConfigData, developer string) {
+
+	var bodyNWL string = ""
+	var countNWL int = 0
 
 	ep := config.Url
 	ep += "search?jql=assignee="
@@ -49,13 +52,13 @@ func getStoriesWithNoLoggedHrs(config *JSONConfigData, developer string) {
 
 	for _, issue := range jiraStoryData.Issues {
 		if issue.Fields.TimeSpent <= 0 {
-			body += "Story: " + issue.Key
-			body += "\r\n"
-			count++
+			bodyNWL += "Story: " + issue.Key
+			bodyNWL += "\r\n"
+			countNWL++
 		}
 	}
-	if count > 0 {
-		sendEmail(config, "jose.robles@kreatetechnology.com", body, "ROBILYTICS: Delivered stories with no time logged: "+developer)
+	if countNWL > 0 {
+		sendEmail(config, "jose.robles@kreatetechnology.com", bodyNWL, "ROBILYTICS: Delivered stories with no time logged: "+developer)
 	}
 	defer robi_wg.Done()
 }
