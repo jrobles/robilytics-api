@@ -75,11 +75,12 @@ func main() {
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
 	case "redFlags":
-		robi_wg.Add(getNumDevelopers() * 2)
+		robi_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getActiveStoriesWithNoEstimate(config, developer)
 				go getStoriesWithNoLoggedHrs(config, developer)
+				go activeStoriesWithNoFixVersion(config, developer)
 			}
 		}
 		robi_wg.Wait()

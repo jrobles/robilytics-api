@@ -52,6 +52,9 @@ type jiraDataStruct struct {
 				Self     string `json:self`
 				Released bool   `json:released`
 			} `json:fixVersions`
+			Subtasks []struct {
+				Self string `json:self`
+			} `json:subtasks`
 		} `json:fields`
 		ChangeLog struct {
 			Histories []struct {
