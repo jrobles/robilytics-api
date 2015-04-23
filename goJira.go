@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-var robi_wg sync.WaitGroup
+var developer_wg sync.WaitGroup
+var project_wg sync.WaitGroup
 
 func main() {
 
@@ -35,22 +36,22 @@ func main() {
 
 	switch *report {
 	case "velocity":
-		robi_wg.Add(getNumDevelopers())
+		developer_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getDeveloperVelocity(config, developer)
 			}
 		}
-		robi_wg.Wait()
+		developer_wg.Wait()
 
 	case "meetings":
-		robi_wg.Add(getNumDevelopers())
+		developer_wg.Add(getNumDevelopers())
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getWorklogData(config, developer)
 			}
 		}
-		robi_wg.Wait()
+		developer_wg.Wait()
 
 	case "defectRatio":
 		t := time.Now()
@@ -75,7 +76,7 @@ func main() {
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
 	case "redFlags":
-		robi_wg.Add(getNumDevelopers() * 3)
+		developer_wg.Add(getNumDevelopers() * 3)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getActiveStoriesWithNoEstimate(config, developer)
@@ -83,7 +84,13 @@ func main() {
 				go activeStoriesWithNoFixVersion(config, developer)
 			}
 		}
-		robi_wg.Wait()
+		developer_wg.Wait()
+
+		project_wg.Add(len(config.Projects))
+		for _, project := range config.Projects {
+			go getActiveStoryEdits(config, project)
+		}
+		project_wg.Wait()
 	}
 }
 
@@ -172,7 +179,7 @@ func getDeveloperVelocity(config *JSONConfigData, developer string) {
 			}
 		}
 	}
-	defer robi_wg.Done()
+	defer developer_wg.Done()
 }
 
 func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
@@ -249,5 +256,5 @@ func getWorklogData(config *JSONConfigData, developer string) {
 			}
 		}
 	}
-	defer robi_wg.Done()
+	defer developer_wg.Done()
 }
