@@ -126,8 +126,8 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 
 func getDeveloperVelocity(config *JSONConfigData, developer string) {
 
-	var y string = "doop"
-	var w string = "yyy"
+	var y string = ""
+	var w string = ""
 
 	redisConn, err := redis.Dial("tcp", ":6379")
 	if err != nil {
@@ -258,3 +258,17 @@ func getWorklogData(config *JSONConfigData, developer string) {
 	}
 	defer developer_wg.Done()
 }
+
+func getNumDevelopers() int {
+	redisConn, err := redis.Dial("tcp", ":6379")
+	if err != nil {
+		errorToLog("Cannot connect to Redis server", err)
+	}
+	numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
+	if err != nil {
+		errorToLog("Cannot obtain the number of developers from data:developers SET", err)
+	}
+	return numDevelopers
+
+}
+

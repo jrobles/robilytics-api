@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/garyburd/redigo/redis"
 	"log"
 	"os"
 )
@@ -16,17 +15,4 @@ func errorToLog(logData string, err error) {
 	defer f.Close()
 	log.SetOutput(f)
 	log.Println(logData, err)
-}
-
-func getNumDevelopers() int {
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		errorToLog("Cannot connect to Redis server", err)
-	}
-	numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
-	if err != nil {
-		errorToLog("Cannot obtain the number of developers from data:developers SET", err)
-	}
-	return numDevelopers
-
 }
