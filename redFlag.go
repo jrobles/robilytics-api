@@ -42,7 +42,7 @@ func getActiveStoryEdits(config *JSONConfigData, project string) {
 					created := strings.Split(history.Created, "T")
 					t, err := time.Parse("2006-01-02", created[0])
 					if err != nil {
-						errorToLog("Could not parse time string", err)
+						errorToLog(errorLogFile, "Could not parse time string", err)
 					}
 					delta := today.Sub(t)
 					ageOfChange := delta.Hours() / 24
