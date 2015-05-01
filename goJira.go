@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
@@ -16,6 +17,8 @@ var developer_wg sync.WaitGroup
 var project_wg sync.WaitGroup
 
 func main() {
+
+	numDevs := getNumDevelopers()
 
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
@@ -36,7 +39,8 @@ func main() {
 
 	switch *report {
 	case "velocity":
-		developer_wg.Add(getNumDevelopers())
+		fmt.Println("Running Velocity report for:", numDevs, "developers")
+		developer_wg.Add(numDevs)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getDeveloperVelocity(config, developer)
@@ -45,7 +49,7 @@ func main() {
 		developer_wg.Wait()
 
 	case "meetings":
-		developer_wg.Add(getNumDevelopers())
+		developer_wg.Add(numDevs)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getWorklogData(config, developer)
@@ -59,6 +63,8 @@ func main() {
 		year, week := t.ISOWeek()
 		y := strconv.Itoa(year)
 		w := strconv.Itoa(week)
+
+		fmt.Println(y, w)
 
 		for _, team := range config.Teams {
 			redisConn.Do("SADD", "data:teams", team.Name)
@@ -76,7 +82,7 @@ func main() {
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
 	case "redFlags":
-		developer_wg.Add(getNumDevelopers() * 3)
+		developer_wg.Add(numDevs * 3)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
 				go getActiveStoriesWithNoEstimate(config, developer)
@@ -269,6 +275,4 @@ func getNumDevelopers() int {
 		errorToLog("Cannot obtain the number of developers from data:developers SET", err)
 	}
 	return numDevelopers
-
 }
-

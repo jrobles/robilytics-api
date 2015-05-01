@@ -63,6 +63,12 @@ func getActiveStoryEdits(config *JSONConfigData, project string) {
 
 func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string) {
 
+	typesToInclude := map[string]bool{
+		"Chore": true,
+		"Bug":   true,
+		"Story": true,
+	}
+
 	var body string = ""
 	var count int = 0
 
@@ -78,7 +84,7 @@ func getActiveStoriesWithNoEstimate(config *JSONConfigData, developer string) {
 	for _, issue := range jiraStoryData.Issues {
 		estimate := strconv.Itoa(issue.Fields.TimeOriginalEstimate)
 		if estimate == "" || issue.Fields.CustomField_10700.Value != "Yes" {
-			if issue.Fields.IssueType.Name != "Meeting" {
+			if typesToInclude[issue.Fields.IssueType.Name] {
 				body += "Story: https://kreatetechnology.atlassian.net/browse/" + issue.Key
 				body += "\r\n"
 				count++
