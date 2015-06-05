@@ -65,6 +65,7 @@ func main() {
 		w := strconv.Itoa(week)
 
 		for _, team := range config.Teams {
+
 			redisConn.Do("SADD", "data:teams", team.Name)
 			var teamTotal float64 = 0
 			var teamPop int = 0
