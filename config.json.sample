@@ -1,5 +1,0 @@
-{
-	"url":"https://{your_jira_name}.atlassian.net/rest/api/2/",
-	"username":"user.name",
-	"password":"user.password"
-}
