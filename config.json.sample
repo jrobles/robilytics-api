@@ -1,0 +1,33 @@
+{
+    "url": "https://{your_org_name}.atlassian.net/rest/api/2/",
+    "username": "your_user_name",
+    "password": "your_password",
+	"emailAddress": "your_email_addy",
+	"emailPassword": "your_email_passwd",
+    "projects": [
+        "projectX",
+        "projectY"
+    ],
+    "teams": [
+        {
+       		"name":"Sharks",
+         	"team leader":"Homer",
+            "members": [
+                "Homer",
+                "bart",
+             	"lisa",
+               	"Marge"
+            ]
+        },
+    	{    
+       		"name":"Jets",
+       		"team leader": "Murdock",
+            "members": [
+                "Murdock",
+                "BA",
+              	"Hannibal",
+            	"Peck"
+            ]
+        }
+    ]
+}
