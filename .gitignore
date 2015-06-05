@@ -2,6 +2,7 @@
 *.o
 *.a
 *.so
+config.json
 
 # Folders
 _obj
