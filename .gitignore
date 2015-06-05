@@ -6,10 +6,15 @@
 # Folders
 _obj
 _test
+_src
+_pkg
+src
+pkg
 
 src/
 pkg/
 config.json
+goJira
 
 # Architecture specific extensions/prefixes
 *.[568vq]
@@ -25,3 +30,7 @@ _testmain.go
 
 *.exe
 *.test
+*.swp
+*.xlsx
+*.xls
+*.DS_Store 
