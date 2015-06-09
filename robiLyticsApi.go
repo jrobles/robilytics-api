@@ -10,6 +10,7 @@ import (
 	"time"
 	"encoding/json"
 	"strconv"
+	"github.com/jrobles7962/robiLyticsApi/goJira/goJira"
 )
 
 var project_wg sync.WaitGroup
