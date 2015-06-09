@@ -7,6 +7,7 @@ config.json
 # Folders
 _obj
 _test
+src
 
 # Architecture specific extensions/prefixes
 *.[568vq]
