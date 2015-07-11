@@ -64,22 +64,6 @@ func main() {
 			teamAvg := teamTotal / float64(teamPop)
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
-	case "redFlags":
-		developer_wg.Add(numDevs * 3)
-		for _, team := range config.Teams {
-			for _, developer := range team.Members {
-				go getActiveStoriesWithNoEstimate(config, developer)
-				go getStoriesWithNoLoggedHrs(config, developer)
-				go activeStoriesWithNoFixVersion(config, developer)
-			}
-		}
-		developer_wg.Wait()
-
-		project_wg.Add(len(config.Projects))
-		for _, project := range config.Projects {
-			go getActiveStoryEdits(config, project)
-		}
-		project_wg.Wait()
 	}
 }
 
