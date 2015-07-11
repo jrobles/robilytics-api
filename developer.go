@@ -9,15 +9,10 @@ import (
 
 var developer_wg sync.WaitGroup
 
-func getDeveloperVelocity(config *JSONConfigData, developer string) {
+func getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
 
 	var y string = ""
 	var w string = ""
-
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		errorToLog(errorLogFile, "Could not connect to Redis DB", err)
-	}
 
 	endpoint := config.Url
 	endpoint += "search?jql=assignee="
@@ -100,11 +95,7 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func getWorklogData(config *JSONConfigData, developer string) {
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		errorToLog(errorLogFile, "Could not connect to Redis DB", err)
-	}
+func getWorklogData(config *JSONConfigData, developer string, redisConn redis.Conn) {
 
 	ep1 := config.Url
 	ep1 += "search?jql=assignee="
