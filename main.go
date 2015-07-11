@@ -17,7 +17,10 @@ var debugLogFile string = "/var/log/robiLytics.debug.log"
 
 func main() {
 
-	numDevs := getNumDevelopers()
+	// Connect to Redis Server
+	redisConn := connectToRedis(":6379")
+
+	numDevs := getNumDevelopers(redisConn)
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
 
@@ -29,9 +32,6 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	// Connect to Redis Server
-	redisConn := connectToRedis(":6379")
-
 	switch *report {
 	case "velocity":
 		developer_wg.Add(numDevs)
@@ -41,16 +41,6 @@ func main() {
 			}
 		}
 		developer_wg.Wait()
-
-	case "meetings":
-		developer_wg.Add(numDevs)
-		for _, team := range config.Teams {
-			for _, developer := range team.Members {
-				go getWorklogData(config, developer)
-			}
-		}
-		developer_wg.Wait()
-
 	case "defectRatio":
 		t := time.Now()
 		date := t.Format("01/02/2006")

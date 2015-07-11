@@ -1,10 +1,10 @@
 package main
 
 import (
-	"sync"
-	"github.com/garyburd/redigo/redis"
 	"encoding/json"
+	"github.com/garyburd/redigo/redis"
 	"strconv"
+	"sync"
 )
 
 var developer_wg sync.WaitGroup
@@ -143,11 +143,7 @@ func getWorklogData(config *JSONConfigData, developer string) {
 	defer developer_wg.Done()
 }
 
-func getNumDevelopers() int {
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		errorToLog(errorLogFile, "Cannot connect to Redis server", err)
-	}
+func getNumDevelopers(redisConn redis.Conn) int {
 	numDevelopers, err := redis.Int(redisConn.Do("SCARD", "data:developers"))
 	if err != nil {
 		errorToLog(errorLogFile, "Cannot obtain the number of developers from data:developers SET", err)
