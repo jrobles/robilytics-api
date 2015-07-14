@@ -9,6 +9,14 @@ import (
 
 var developer_wg sync.WaitGroup
 
+func checkDevs(redisConn redis.Conn, config *JSONConfigData) {
+	for _, team := range config.Teams {
+		for _, developer := range team.Members {
+			redisConn.Do("SADD", "data:developers", developer)
+		}
+	}
+}
+
 func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 
 	endpoint := config.Url

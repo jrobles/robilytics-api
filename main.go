@@ -20,7 +20,6 @@ func main() {
 	// Connect to Redis Server
 	redisConn := connectToRedis(":6379")
 
-	numDevs := getNumDevelopers(redisConn)
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
 
@@ -31,6 +30,11 @@ func main() {
 		errorToLog(errorLogFile, "Could not read config.json", err)
 	}
 	json.Unmarshal([]byte(J), &config)
+
+	// Check JSON for new developers.
+	checkDevs(redisConn, config)
+
+	numDevs := getNumDevelopers(redisConn)
 
 	switch *report {
 	case "velocity":
