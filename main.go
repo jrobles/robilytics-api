@@ -1,15 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
-	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"encoding/json"
-	"strconv"
 )
 
 var project_wg sync.WaitGroup
@@ -18,7 +17,9 @@ var debugLogFile string = "/var/log/robiLytics.debug.log"
 
 func main() {
 
-	numDevs := getNumDevelopers()
+	// Connect to Redis Server
+	redisConn := connectToRedis(":6379")
+
 	report := flag.String("report", "", "Report to run")
 	flag.Parse()
 
@@ -30,31 +31,20 @@ func main() {
 	}
 	json.Unmarshal([]byte(J), &config)
 
-	// Connect to Redis
-	redisConn, err := redis.Dial("tcp", ":6379")
-	if err != nil {
-		errorToLog(errorLogFile, "Could not connect to Redis server", err)
-	}
+	// Check JSON for new developers.
+	checkDevs(redisConn, config)
+
+	numDevs := getNumDevelopers(redisConn)
 
 	switch *report {
 	case "velocity":
 		developer_wg.Add(numDevs)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
-				go getDeveloperVelocity(config, developer)
+				go getDeveloperVelocity(config, developer, redisConn)
 			}
 		}
 		developer_wg.Wait()
-
-	case "meetings":
-		developer_wg.Add(numDevs)
-		for _, team := range config.Teams {
-			for _, developer := range team.Members {
-				go getWorklogData(config, developer)
-			}
-		}
-		developer_wg.Wait()
-
 	case "defectRatio":
 		t := time.Now()
 		date := t.Format("01/02/2006")
@@ -78,22 +68,6 @@ func main() {
 			teamAvg := teamTotal / float64(teamPop)
 			redisConn.Do("HSET", "stats:defectRatio:team:"+team.Name, date, teamAvg)
 		}
-	case "redFlags":
-		developer_wg.Add(numDevs * 3)
-		for _, team := range config.Teams {
-			for _, developer := range team.Members {
-				go getActiveStoriesWithNoEstimate(config, developer)
-				go getStoriesWithNoLoggedHrs(config, developer)
-				go activeStoriesWithNoFixVersion(config, developer)
-			}
-		}
-		developer_wg.Wait()
-
-		project_wg.Add(len(config.Projects))
-		for _, project := range config.Projects {
-			go getActiveStoryEdits(config, project)
-		}
-		project_wg.Wait()
 	}
 }
 
@@ -126,5 +100,3 @@ func cURLEndpoint(config *JSONConfigData, endpoint string) string {
 	res.Body.Close()
 	return string(body)
 }
-
-

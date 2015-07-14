@@ -40,6 +40,7 @@ type jiraDataStruct struct {
 			Status struct {
 				Name string `json:name`
 			}
+			CustomField_10004 float32 `json:customfield_10004`
 			CustomField_11200 struct {
 				Value string `json:value`
 			} `json:customfield_11200`
