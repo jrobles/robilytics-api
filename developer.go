@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"strconv"
 	"sync"
@@ -93,6 +94,51 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	}
 	result := float64(rejected) / float64(delivered)
 	return result
+}
+
+func _getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
+
+	var y string = ""
+	var w string = ""
+
+	endpoint := config.Url
+	endpoint += "search?jql=assignee="
+	endpoint += developer
+	endpoint += "&maxResults=20000"
+	endpoint += "&expand=changelog"
+	endpoint += "&orderby=created"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
+	for _, issue := range jiraStoryData.Issues {
+		check, err := redis.Int(redisConn.Do("SISMEMBER", "data:velocityLogs:developer:"+developer, issue.Id))
+		if err != nil {
+			errorToLog(errorLogFile, "Could not match issue id against velocityLogs", err)
+		}
+		if check == 0 {
+			for _, history := range issue.ChangeLog.Histories {
+				year, week := getWeekNumber(history.Created, "T")
+				y = strconv.Itoa(year)
+				w = strconv.Itoa(week)
+				for _, item := range history.Items {
+					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.CustomField_10004 != "0" {
+						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":TOTAL", issue.Fields.CustomField_10004)
+					}
+				}
+			}
+			total, err := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":TOTAL"))
+			if err != nil {
+				errorToLog(errorLogFile, "Could not get the total number of hours:"+developer+" "+w+" "+y, err)
+			}
+			if total > 0 {
+				redisConn.Do("HSET", "stats:velocity:developer:"+developer, w+":"+y, total)
+				redisConn.Do("SADD", "data:velocityLogs:developer:"+developer, issue.Id)
+			}
+		}
+	}
+	defer developer_wg.Done()
 }
 
 func getWorklogData(config *JSONConfigData, developer string, redisConn redis.Conn) {
