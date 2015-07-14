@@ -37,7 +37,7 @@ func main() {
 		developer_wg.Add(numDevs)
 		for _, team := range config.Teams {
 			for _, developer := range team.Members {
-				go _getDeveloperVelocity(config, developer, redisConn)
+				go getDeveloperVelocity(config, developer, redisConn)
 			}
 		}
 		developer_wg.Wait()

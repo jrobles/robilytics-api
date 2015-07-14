@@ -2,66 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"strconv"
 	"sync"
 )
 
 var developer_wg sync.WaitGroup
-
-func getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
-
-	var y string = ""
-	var w string = ""
-
-	endpoint := config.Url
-	endpoint += "search?jql=assignee="
-	endpoint += developer
-	endpoint += "&maxResults=2000"
-	endpoint += "&expand=changelog"
-	endpoint += "&orderby=created"
-	jiraApiResponse := cURLEndpoint(config, endpoint)
-
-	jiraStoryData := &jiraDataStruct{}
-	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
-
-	for _, issue := range jiraStoryData.Issues {
-		check, err := redis.Int(redisConn.Do("SISMEMBER", "data:velocityLogs:developer:"+developer, issue.Id))
-		if err != nil {
-			errorToLog(errorLogFile, "Could not match issue id against velocityLogs", err)
-		}
-		if check == 0 {
-			for _, history := range issue.ChangeLog.Histories {
-				year, week := getWeekNumber(history.Created, "T")
-				y = strconv.Itoa(year)
-				w = strconv.Itoa(week)
-				for _, item := range history.Items {
-					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.TimeSpent > 0 {
-						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":TOTAL", issue.Fields.TimeSpent)
-						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":ENTRIES", 1)
-					}
-				}
-			}
-			total, err := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":TOTAL"))
-			if err != nil {
-				errorToLog(errorLogFile, "Could not get the total number of hours:"+developer+" "+w+" "+y, err)
-			}
-			entries, err := redis.Int(redisConn.Do("HGET", "data:velocity:developer:"+developer, w+":"+y+":ENTRIES"))
-			if err != nil {
-				errorToLog(errorLogFile, "Could not get the total num of entries: "+developer+" "+w+" "+y, err)
-			}
-			if total > 0 && entries > 0 {
-				velocity := (total / entries) / 60
-				redisConn.Do("HSET", "stats:velocity:developer:"+developer, w+":"+y, velocity)
-				redisConn.Do("SADD", "data:velocityLogs:developer:"+developer, issue.Id)
-			} else {
-				// Add to exception log / email
-			}
-		}
-	}
-	defer developer_wg.Done()
-}
 
 func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 
@@ -96,7 +42,7 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	return result
 }
 
-func _getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
+func getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
 
 	var y string = ""
 	var w string = ""
@@ -123,7 +69,7 @@ func _getDeveloperVelocity(config *JSONConfigData, developer string, redisConn r
 				y = strconv.Itoa(year)
 				w = strconv.Itoa(week)
 				for _, item := range history.Items {
-					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.CustomField_10004 != "0" {
+					if item.Field == "status" && item.ToString == "Finished" && issue.Fields.CustomField_10004 > 0 {
 						redisConn.Do("HINCRBY", "data:velocity:developer:"+developer, w+":"+y+":TOTAL", issue.Fields.CustomField_10004)
 					}
 				}
