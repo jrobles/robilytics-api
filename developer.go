@@ -5,6 +5,7 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"strconv"
 	"sync"
+	"fmt"
 )
 
 var developer_wg sync.WaitGroup
@@ -48,6 +49,25 @@ func getDeveloperDefectRatio(config *JSONConfigData, developer string) float64 {
 	}
 	result := float64(rejected) / float64(delivered)
 	return result
+}
+
+func getHrsPerPoint(config *JSONConfigData, developer string, redisConn redis.Conn) {
+
+	endpoint := config.Url
+	endpoint += "search?jql=assignee="
+	endpoint += developer
+	endpoint += "&maxResults=20000"
+	endpoint += "&expand=changelog"
+	endpoint += "&orderby=created"
+	jiraApiResponse := cURLEndpoint(config, endpoint)
+
+	jiraStoryData := &jiraDataStruct{}
+	json.Unmarshal([]byte(jiraApiResponse), &jiraStoryData)
+
+	for _, issue := range jiraStoryData.Issues {
+		redisConn.Do("SISMEMBER","data:developers")
+		fmt.Println(issue)
+	}
 }
 
 func getDeveloperVelocity(config *JSONConfigData, developer string, redisConn redis.Conn) {
